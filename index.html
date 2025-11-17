@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <title>بوابة المتجر الآلية</title>
+ <!-- تحميل Tailwind CSS -->
+ <script src="https://cdn.tailwindcss.com"></script>
+ <style>
+  /* خط Inter للوضوح */
+  @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
+
+  body {
+   font-family: 'Cairo', sans-serif;
+   background-color: #f4f6f9;
+  }
+
+  .chat-container {
+   max-width: 480px;
+   height: 90vh;
+   margin: 20px auto;
+   border-radius: 1.5rem;
+   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+   overflow: hidden;
+   display: flex;
+   flex-direction: column;
+  }
+
+  .bot-message {
+   background-color: #ffffff;
+   border-radius: 1.25rem 1.25rem 1.25rem 0.5rem;
+   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  }
+
+  .user-message {
+   background-color: #10b981;
+   /* زمردي */
+   color: white;
+   border-radius: 1.25rem 1.25rem 0.5rem 1.25rem;
+  }
+
+  #chat-messages {
+   flex-grow: 1;
+   padding: 1rem;
+   overflow-y: auto;
+   scroll-behavior: smooth;
+  }
+ </style>
+</head>
+
+<body class="bg-gray-100 p-4">
+
+ <!-- 🛑 تنبيه هام: يجب استبدال قيم المتغيرات التالية بقيم Dialogflow Agent الخاصة بك -->
+ <script>
+  // Dialogflow V2 API requires a service account and JWT token generation on the server side (Vercel).
+  // Since we are building a purely client-side HTML file, we MUST use a simpler HTTP endpoint 
+  // that proxies the request to Dialogflow. The Webhook on Vercel is the ideal proxy.
+
+  // API Endpoint: Use the Vercel Webhook URL as the proxy.
+  const DIALOGFLOW_WEBHOOK_URL = "https://gifts-bot-webhook.vercel.app/webhook"; // تم التعديل
+
+  // Unique Session ID for the chat session
+  const sessionId = `web-session-${Math.random().toString(36).substring(2, 15)}`;
+
+  // --- Helper Functions ---
+
+  /**
+   * Cleans text from Dialogflow/Markdown symbols for safe HTML rendering.
+   */
+  const cleanText = (text) => {
+   return text
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Markdown bold to HTML
+    .replace(/\n/g, '<br>'); // New lines
+  };
+
+  /**
+   * Converts the Dialogflow payload (including Telegram/Facebook rich data) into HTML elements.
+   * @param {Array} messages - Array of fulfillment messages from Dialogflow.
+   */
+  const renderBotMessage = (messages) => {
+   const chatMessages = document.getElementById('chat-messages');
+   const messageWrapper = document.createElement('div');
+   messageWrapper.className = 'flex justify-start mb-4';
+
+   const messageBox = document.createElement('div');
+   messageBox.className = 'bot-message max-w-[80%] p-3 text-sm text-gray-700 shadow-md';
+
+   let messageContent = '';
+   let quickRepliesHtml = '';
+
+   messages.forEach(msg => {
+    // 1. معالجة الرسائل النصية العامة
+    if (msg.text && msg.text.text) {
+     messageContent += `<p class="mb-2">${cleanText(msg.text.text[0] || '')}</p>`;
+    }
+
+    // 2. معالجة البطاقات الغنية (Messenger Card) - لإظهار المنتجات
+    if (msg.platform === 'facebook' && msg.card) {
+     const card = msg.card;
+     const cardHtml = `
+                        <div class="bg-gray-50 border border-gray-200 p-3 rounded-xl mb-3">
+                            <h4 class="font-bold text-base text-teal-600 mb-1">${card.title}</h4>
+                            ${card.imageUri ? `<img src="${card.imageUri}" class="w-full h-auto rounded-lg my-2" alt="${card.title}">` : ''}
+                            <p class="text-sm">${cleanText(card.subtitle || '')}</p>
+                            ${card.buttons ? card.buttons.map(btn =>
+      `<a href="${btn.postback}" target="_blank" class="block w-full text-center mt-2 p-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs transition duration-150">${btn.text}</a>`
+     ).join('') : ''}
+                        </div>
+                    `;
+     messageContent += cardHtml;
+    }
+
+    // 3. معالجة الأزرار التفاعلية (Telegram Inline Keyboard)
+    if (msg.platform === 'telegram' && msg.payload && msg.payload.telegram && msg.payload.telegram.reply_markup) {
+     const keyboard = msg.payload.telegram.reply_markup.inline_keyboard;
+
+     quickRepliesHtml += `<div class="mt-2 flex flex-wrap gap-2">`;
+     keyboard.flat().forEach(btn => {
+      const dataValue = btn.callback_data || btn.text;
+      quickRepliesHtml += `<button 
+                            class="quick-reply-btn bg-blue-500 text-white text-xs px-3 py-1 rounded-full hover:bg-blue-600 transition duration-150" 
+                            data-text="${dataValue}">
+                            ${btn.text}
+                        </button>`;
+     });
+     quickRepliesHtml += `</div>`;
+    }
+
+    // 4. معالجة Quick Replies (Facebook)
+    if (msg.platform === 'facebook' && msg.quickReplies) {
+     const replies = msg.quickReplies.quickReplies;
+
+     quickRepliesHtml += `<div class="mt-2 flex flex-wrap gap-2">`;
+     replies.forEach(replyText => {
+      // استخدام النص نفسه كإجراء
+      quickRepliesHtml += `<button 
+                            class="quick-reply-btn bg-indigo-500 text-white text-xs px-3 py-1 rounded-full hover:bg-indigo-600 transition duration-150" 
+                            data-text="${replyText}">
+                            ${replyText}
+                        </button>`;
+     });
+     quickRepliesHtml += `</div>`;
+    }
+   });
+
+   messageBox.innerHTML = messageContent + quickRepliesHtml;
+   messageWrapper.appendChild(messageBox);
+   chatMessages.appendChild(messageWrapper);
+
+   // Attach event listeners to quick reply buttons
+   messageBox.querySelectorAll('.quick-reply-btn').forEach(button => {
+    button.addEventListener('click', (e) => {
+     const textToSend = e.target.getAttribute('data-text');
+     if (textToSend) {
+      sendMessage(textToSend);
+     }
+    });
+   });
+
+   // Scroll to the bottom
+   chatMessages.scrollTop = chatMessages.scrollHeight;
+  };
+
+  /**
+   * Renders the user's message in the chat interface.
+   * @param {string} text - The text sent by the user.
+   */
+  const renderUserMessage = (text) => {
+   const chatMessages = document.getElementById('chat-messages');
+   const messageWrapper = document.createElement('div');
+   messageWrapper.className = 'flex justify-end mb-4';
+
+   const messageBox = document.createElement('div');
+   messageBox.className = 'user-message max-w-[80%] p-3 text-sm shadow-md';
+   messageBox.innerHTML = cleanText(text);
+
+   messageWrapper.appendChild(messageBox);
+   chatMessages.appendChild(messageWrapper);
+   chatMessages.scrollTop = chatMessages.scrollHeight;
+  };
+
+  /**
+   * Sends a message to the Dialogflow Webhook proxy.
+   * @param {string} text - The text message to send.
+   */
+  const sendMessage = async (text) => {
+   if (!text.trim()) return;
+
+   renderUserMessage(text);
+   document.getElementById('user-input').value = '';
+   showLoadingIndicator(true);
+
+   try {
+    // Payload structure compatible with your Vercel Webhook:
+    const dialogflowRequest = {
+     session: sessionId,
+     queryResult: {
+      queryText: text,
+      parameters: {} // يمكن إضافة متغيرات هنا إذا لزم الأمر
+     },
+     // محاكاة لـ Telegram/Facebook لتشغيل الـ Payload الصحيح في Webhook
+     originalDetectIntentRequest: {
+      source: 'web_chat', // يمكن استخدام هذا لتخصيص الردود في Webhook
+      payload: {}
+     }
+    };
+
+    // يجب أن يعالج الـ Webhook الخاص بك هذا الـ Payload ويرسل الطلب إلى Dialogflow
+    const response = await fetch(DIALOGFLOW_WEBHOOK_URL, {
+     method: 'POST',
+     headers: {
+      'Content-Type': 'application/json'
+     },
+     body: JSON.stringify(dialogflowRequest)
+    });
+
+    if (!response.ok) {
+     throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const result = await response.json();
+
+    // افتراض أن نتيجة الـ Webhook هي الرد الذي يجب إرساله إلى Dialogflow (fulfillmentText & fulfillmentMessages)
+    if (result.fulfillmentMessages) {
+     renderBotMessage(result.fulfillmentMessages);
+    } else if (result.fulfillmentText) {
+     // إذا لم يكن هناك رسائل غنية، نعرض النص العادي
+     renderBotMessage([{ text: { text: [result.fulfillmentText] } }]);
+    } else {
+     renderBotMessage([{ text: { text: ["آسف، حدث خطأ في معالجة الرد."] } }]);
+    }
+
+   } catch (error) {
+    console.error("Error communicating with Dialogflow Webhook:", error);
+    renderBotMessage([{ text: { text: ["عفواً، لا يمكن التواصل مع خادم البوت حالياً."] } }]);
+   } finally {
+    showLoadingIndicator(false);
+   }
+  };
+
+  /**
+   * Toggles the loading indicator visibility.
+   */
+  const showLoadingIndicator = (show) => {
+   const indicator = document.getElementById('loading-indicator');
+   indicator.classList.toggle('hidden', !show);
+   document.getElementById('send-button').disabled = show;
+  };
+
+  // --- Event Listeners ---
+  document.addEventListener('DOMContentLoaded', () => {
+   const form = document.getElementById('chat-form');
+   const input = document.getElementById('user-input');
+
+   form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    sendMessage(input.value);
+   });
+
+   // Send initial welcome message
+   // Note: Since this is purely client side, we cannot trigger the Welcome Intent directly.
+   // We can send a mock welcome query like "/start" to trigger it via Webhook.
+   sendMessage("/start");
+  });
+ </script>
+
+
+ <!-- Chat Interface Structure -->
+ <div class="chat-container bg-white border border-gray-300">
+  <!-- Header -->
+  <header class="bg-gray-800 text-white p-4 text-center rounded-t-2xl">
+   <h1 class="text-xl font-bold">متجر الهدايا الآلي</h1>
+   <p class="text-xs text-gray-400">تحدث معي لمعرفة الأسعار والطلب</p>
+  </header>
+
+  <!-- Messages Area -->
+  <div id="chat-messages" class="flex flex-col space-y-4 bg-gray-50 p-4">
+   <!-- Messages will be injected here -->
+  </div>
+
+  <!-- Loading Indicator -->
+  <div id="loading-indicator" class="flex justify-center items-center py-2 hidden">
+   <div class="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-teal-500"></div>
+   <span class="text-sm text-gray-500 mr-2">جاري الرد...</span>
+  </div>
+
+  <!-- Input Form -->
+  <form id="chat-form" class="flex p-4 border-t border-gray-200 bg-white rounded-b-2xl">
+   <input type="text" id="user-input" placeholder="اكتب رسالتك..."
+    class="flex-grow p-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 transition duration-150 text-sm"
+    autocomplete="off" required>
+   <button type="submit" id="send-button"
+    class="bg-teal-600 hover:bg-teal-700 text-white font-bold p-3 rounded-xl mr-2 transition duration-150">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"
+     class="w-6 h-6">
+     <path stroke-linecap="round" stroke-linejoin="round"
+      d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+    </svg>
+   </button>
+  </form>
+ </div>
+</body>
+
+</html>
