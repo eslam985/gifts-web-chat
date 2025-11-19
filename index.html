@@ -55,8 +55,14 @@
     // 🛑 الإعدادات الحتمية
     // تأكد أن هذا الرابط هو رابط الـ Webhook القديم الصحيح (gifts-bot-webhook.vercel.app)
     const DIALOGFLOW_WEBHOOK_URL = "https://gifts-bot-webhook.vercel.app/webhook";
-    const CHAT_SESSION_ID = `web-chat-session-${Math.random().toString(36).substring(2, 9)}`;
-
+    // 🛑 الإصلاح الحتمي: تعريف متغير الجلسة وتخزينه في localStorage
+    let CHAT_SESSION_ID;
+    if (!localStorage.getItem('sessionId')) {
+      // إذا لم يوجد، نقوم بإنشاء واحد وتخزينه
+      localStorage.setItem('sessionId', Math.random().toString(36).substring(2, 15));
+    }
+    // نقوم بسحب المعرف المخزن (سواء كان جديداً أو قديماً)
+    CHAT_SESSION_ID = localStorage.getItem('sessionId');
     // --- Helper Functions ---
 
     /**
