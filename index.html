@@ -5,270 +5,207 @@
  <meta charset="UTF-8">
  <meta name="viewport" content="width=device-width, initial-scale=1.0">
  <title>GiftsBot Web Chat</title>
- <!-- تحميل Tailwind CSS -->
  <script src="https://cdn.tailwindcss.com"></script>
- <!-- إعداد خط Inter وبعض الألوان -->
- <script>
-  tailwind.config = {
-   theme: {
-    extend: {
-     colors: {
-      'primary-blue': '#4F46E5',
-      'secondary-gray': '#F3F4F6',
-      'bot-bubble': '#E0F2F1', // Teal Light
-      'user-bubble': '#DCF8C6', // Light Green
-     },
-     fontFamily: {
-      sans: ['Inter', 'Arial', 'sans-serif'],
-     }
-    }
-   }
-  }
- </script>
  <style>
-  /* التمرير السلس */
+  body {
+   font-family: sans-serif;
+   background-color: #f3f4f6;
+  }
+
   .chat-container {
-   scroll-behavior: smooth;
+   height: 80vh;
+   overflow-y: auto;
   }
 
-  /* تصميم زر الإرسال */
-  #sendButton {
-   transition: background-color 0.2s;
+  .bot-msg {
+   background-color: white;
+   color: #374151;
+   border-radius: 0.75rem;
+   border-top-right-radius: 0;
   }
 
-  #sendButton:hover {
-   background-color: #4338CA;
+  .user-msg {
+   background-color: #3b82f6;
+   color: white;
+   border-radius: 0.75rem;
+   border-top-left-radius: 0;
   }
 
-  /* تصميم الأزرار السريعة */
-  .quick-reply-button {
+  .quick-btn {
    transition: all 0.2s;
-   cursor: pointer;
   }
 
-  .quick-reply-button:hover {
-   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-   transform: translateY(-1px);
+  .quick-btn:hover {
+   transform: translateY(-2px);
   }
  </style>
 </head>
 
-<body class="bg-gray-100 flex items-center justify-center min-h-screen font-sans p-4">
+<body class="flex items-center justify-center min-h-screen p-4">
 
- <!-- حاوية الدردشة الرئيسية -->
- <div class="w-full max-w-lg h-[90vh] flex flex-col bg-white rounded-xl shadow-2xl overflow-hidden">
-
-  <!-- الرأس -->
-  <header class="bg-primary-blue text-white p-4 flex items-center rounded-t-xl shadow-md">
-   <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 ml-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-     d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.693a9.76 9.76 0 01-1.346-4.307c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-   </svg>
-   <h1 class="text-xl font-bold">بوت الهدايا (GiftsBot)</h1>
+ <div class="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col h-[600px]">
+  <header class="bg-blue-600 text-white p-4 font-bold text-lg flex justify-between items-center">
+   <span>🤖 المساعد الذكي</span>
   </header>
 
-  <!-- منطقة الرسائل -->
-  <div id="chatContainer" class="chat-container flex-grow p-4 space-y-4 overflow-y-auto bg-secondary-gray">
-   <!-- سيتم إضافة الرسائل هنا -->
-  </div>
+  <div id="chat-messages" class="chat-container flex-1 p-4 space-y-4 bg-gray-50"></div>
 
-  <!-- منطقة الأزرار السريعة -->
-  <div id="quickRepliesContainer"
-   class="p-3 bg-white border-t border-gray-200 flex flex-wrap gap-2 justify-start items-center min-h-[4rem]">
-   <!-- سيتم عرض الأزرار السريعة هنا -->
-  </div>
+  <div id="quick-replies" class="p-2 bg-gray-50 flex flex-wrap gap-2 justify-center min-h-[10px]"></div>
 
-  <!-- حقل الإدخال والإرسال -->
-  <div class="p-4 bg-white border-t border-gray-200 flex">
-   <input type="text" id="userInput" placeholder="اكتب رسالتك..."
-    class="flex-grow p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-blue"
-    onkeypress="if(event.key === 'Enter') document.getElementById('sendButton').click()">
-   <button id="sendButton"
-    class="mr-2 bg-primary-blue text-white p-3 rounded-lg font-semibold hover:bg-indigo-700 disabled:bg-gray-400">
-    إرسال
+  <form id="chat-form" class="p-4 bg-white border-t flex gap-2">
+   <input type="text" id="user-input"
+    class="flex-1 border rounded-full px-4 py-2 focus:outline-none focus:border-blue-500" placeholder="اكتب رسالتك..."
+    autocomplete="off">
+   <button type="submit" class="bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 transition">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"
+     class="w-6 h-6">
+     <path stroke-linecap="round" stroke-linejoin="round"
+      d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+    </svg>
    </button>
-  </div>
-
+  </form>
  </div>
 
  <script>
-  // المتغيرات العالمية
-  let sessionId = Date.now().toString(); // لضمان جلسة جديدة لكل تحميل
-  let webhookUrl = 'https://gifts-bot-webhook.vercel.app/webhook';
-  let isWaitingForResponse = false;
-  const chatContainer = document.getElementById('chatContainer');
-  const userInput = document.getElementById('userInput');
-  const sendButton = document.getElementById('sendButton');
-  const quickRepliesContainer = document.getElementById('quickRepliesContainer');
+  // 🛑 تأكد من أن الرابط هنا هو رابط الـ Webhook الصحيح لمشروعك
+  const WEBHOOK_URL = "https://gifts-bot-webhook.vercel.app/webhook";
 
-  // ----------------------------------------------------------------
-  // وظائف DOM
-  // ----------------------------------------------------------------
-
-  /**
-   * تضيف رسالة إلى نافذة الدردشة.
-   * @param {string} text - نص الرسالة.
-   * @param {string} sender - 'user' أو 'bot'.
-   * @param {string} [payload] - حمولة الزر السريع (Quick Reply) إذا تم الضغط عليه.
-   */
-  function addMessage(text, sender, payload = null) {
-   const messageElement = document.createElement('div');
-   messageElement.className = 'flex ' + (sender === 'user' ? 'justify-end' : 'justify-start');
-
-   const bubble = document.createElement('div');
-   bubble.className = 'max-w-xs lg:max-w-md px-4 py-2 rounded-xl shadow-md ' +
-    (sender === 'user' ? 'bg-user-bubble text-gray-800 rounded-br-none' : 'bg-bot-bubble text-gray-800 rounded-tl-none');
-
-   // إذا كانت رسالة المستخدم ناتجة عن ضغط زر سريع
-   if (sender === 'user' && payload) {
-    bubble.innerHTML = `<span class="text-sm italic text-gray-600">اختيار: </span><span class="font-medium">${text}</span>`;
-   } else {
-    bubble.textContent = text;
-   }
-
-   messageElement.appendChild(bubble);
-   chatContainer.appendChild(messageElement);
-
-   // التمرير إلى الأسفل
-   chatContainer.scrollTop = chatContainer.scrollHeight;
+  let SESSION_ID = localStorage.getItem('chat_session_id');
+  if (!SESSION_ID) {
+   SESSION_ID = 'web-' + Math.random().toString(36).substr(2, 9);
+   localStorage.setItem('chat_session_id', SESSION_ID);
   }
 
-  /**
-   * يعرض الأزرار السريعة (Quick Replies) في حاوية خاصة.
-   * @param {Array<Object>} quickReplies - قائمة الأزرار.
-   */
-  function displayQuickReplies(quickReplies) {
-   // مسح الأزرار القديمة
-   quickRepliesContainer.innerHTML = '';
+  const messagesContainer = document.getElementById('chat-messages');
+  const quickRepliesContainer = document.getElementById('quick-replies');
+  const userInput = document.getElementById('user-input');
 
-   if (!quickReplies || quickReplies.length === 0) {
-    // إذا لم يكن هناك أزرار، لا تظهر الحاوية
-    quickRepliesContainer.style.display = 'none';
-    return;
+  // 🛑 دالة سحرية لفك تشفير هيكل Google Protobuf المعقد إلى JSON عادي
+  function normalizeValue(value) {
+   if (!value) return null;
+   if (value.stringValue !== undefined) return value.stringValue;
+   if (value.numberValue !== undefined) return value.numberValue;
+   if (value.boolValue !== undefined) return value.boolValue;
+   if (value.structValue) return normalizeStruct(value.structValue);
+   if (value.listValue) return value.listValue.values.map(normalizeValue);
+   return value;
+  }
+
+  function normalizeStruct(struct) {
+   if (!struct || !struct.fields) return {};
+   const result = {};
+   for (const key in struct.fields) {
+    result[key] = normalizeValue(struct.fields[key]);
    }
+   return result;
+  }
 
-   quickRepliesContainer.style.display = 'flex';
+  function appendMessage(text, sender) {
+   const div = document.createElement('div');
+   div.className = `flex ${sender === 'user' ? 'justify-end' : 'justify-start'}`;
+   div.innerHTML = `<div class="p-3 max-w-[80%] shadow-sm ${sender === 'user' ? 'user-msg' : 'bot-msg'}">${text.replace(/\n/g, '<br>')}</div>`;
+   messagesContainer.appendChild(div);
+   messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  }
 
-   quickReplies.forEach(reply => {
+  function renderQuickReplies(buttons) {
+   quickRepliesContainer.innerHTML = '';
+   if (!buttons || buttons.length === 0) return;
+
+   buttons.forEach(btn => {
     const button = document.createElement('button');
-    button.className = 'quick-reply-button bg-primary-blue text-white text-sm px-4 py-2 rounded-full font-semibold border-2 border-primary-blue';
-    button.textContent = reply.title;
+    // التعامل مع كل من التنسيق البسيط والتنسيق المعقد
+    const label = typeof btn === 'string' ? btn : (btn.title || btn.text);
+    const payload = typeof btn === 'string' ? btn : (btn.payload || btn.text);
 
-    // ربط حدث الضغط لإرسال الحمولة (payload)
+    button.textContent = label;
+    button.className = "quick-btn bg-white border border-blue-500 text-blue-600 px-4 py-1 rounded-full text-sm font-medium hover:bg-blue-50";
     button.onclick = () => {
-     // إرسال النص المعروض كـ payload
-     sendMessage(reply.title, true);
-     // إخفاء الأزرار بعد الضغط
-     quickRepliesContainer.style.display = 'none';
+     sendMessage(payload);
+     quickRepliesContainer.innerHTML = '';
     };
     quickRepliesContainer.appendChild(button);
    });
-   // التمرير إلى الأسفل بعد إضافة الأزرار
-   chatContainer.scrollTop = chatContainer.scrollHeight;
+   messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
 
-
-  /**
-   * يعرض رسالة خطأ بسيطة في نافذة الدردشة.
-   * @param {string} message - نص الخطأ.
-   */
-  function displayError(message) {
-   const errorText = `❌ خطأ في الاتصال: ${message}`;
-   addMessage(errorText, 'bot');
-  }
-
-  /**
-   * تحديث حالة الزر وحقل الإدخال.
-   * @param {boolean} waiting - حالة الانتظار (صحيح/خطأ).
-   */
-  function setWaitingState(waiting) {
-   isWaitingForResponse = waiting;
-   sendButton.disabled = waiting;
-   userInput.disabled = waiting;
-   sendButton.textContent = waiting ? 'جاري الإرسال...' : 'إرسال';
-  }
-
-
-  // ----------------------------------------------------------------
-  // وظيفة الاتصال بـ Webhook
-  // ----------------------------------------------------------------
-
-  /**
-   * إرسال رسالة إلى Webhook Dialogflow Proxy.
-   * @param {string} text - النص الذي سيتم إرساله.
-   * @param {boolean} isQuickReply - هل تم الضغط على زر سريع؟
-   */
-  async function sendMessage(text, isQuickReply = false) {
-   if (isWaitingForResponse) return;
+  async function sendMessage(text) {
    if (!text.trim()) return;
-
-   setWaitingState(true);
-
-   // مسح الأزرار السريعة القديمة
-   displayQuickReplies([]);
-
-   // إضافة رسالة المستخدم إلى واجهة الدردشة
-   addMessage(text, 'user', isQuickReply ? text : null);
+   appendMessage(text, 'user');
    userInput.value = '';
+   quickRepliesContainer.innerHTML = '';
+
+   // إضافة مؤشر تحميل
+   const loadingDiv = document.createElement('div');
+   loadingDiv.className = 'flex justify-start';
+   loadingDiv.innerHTML = `<div class="bg-white text-gray-500 p-3 rounded-lg text-sm">جاري الكتابة...</div>`;
+   messagesContainer.appendChild(loadingDiv);
 
    try {
-    const response = await fetch(webhookUrl, {
+    const response = await fetch(WEBHOOK_URL, {
      method: 'POST',
      headers: { 'Content-Type': 'application/json' },
      body: JSON.stringify({
-      // الهيكل المطلوب بواسطة Web Chat Proxy في server.js
+      source: 'web-chat',
       queryText: text,
-      sessionId: sessionId,
-      source: 'web-chat'
+      sessionId: SESSION_ID
      })
     });
 
-    setWaitingState(false);
-
-    if (!response.ok) {
-     const errorBody = await response.json().catch(() => ({ fulfillmentText: 'خطأ غير معروف في الخادم (HTTP ' + response.status + ')' }));
-     const errorMessage = errorBody.fulfillmentText || `HTTP error! status: ${response.status}. Check Vercel logs for full error.`;
-     console.error('Error communicating with Dialogflow Webhook:', new Error(errorMessage));
-     displayError(errorMessage);
-     return;
-    }
-
-    // تحليل الرد
     const data = await response.json();
+    messagesContainer.removeChild(loadingDiv);
 
-    // النص الأساسي
-    const fulfillmentText = data.fulfillmentText || 'عذراً، لم أفهم طلبك.';
-    addMessage(fulfillmentText, 'bot');
-
-    // 🛑 معالجة الرسائل الغنية (الأزرار السريعة - Quick Replies)
-    if (data.fulfillmentMessages && Array.isArray(data.fulfillmentMessages)) {
-
-     for (const message of data.fulfillmentMessages) {
-      // نبحث عن حمولة Facebook التي تحمل الأزرار السريعة
-      if (message.platform === 'facebook' && message.payload?.facebook?.quick_replies) {
-       displayQuickReplies(message.payload.facebook.quick_replies);
-       break; // نتوقف عند إيجاد الأزرار
+    if (data.fulfillmentMessages) {
+     // 1. عرض النصوص
+     data.fulfillmentMessages.forEach(msg => {
+      if (msg.text && msg.text.text) {
+       appendMessage(msg.text.text[0], 'bot');
       }
+     });
+
+     // 2. استخراج وعرض الأزرار (مع دعم فك تشفير Protobuf)
+     let buttons = [];
+
+     data.fulfillmentMessages.forEach(msg => {
+      // محاولة فك التشفير إذا كانت البيانات معقدة (structValue)
+      let payload = msg.payload;
+
+      // التحقق مما إذا كانت البيانات بتنسيق Protobuf وتحويلها
+      if (payload && payload.fields) {
+       payload = normalizeStruct(payload);
+      }
+
+      // الآن نتعامل مع البيانات النظيفة
+      if (payload && payload.facebook && payload.facebook.quick_replies) {
+       buttons = payload.facebook.quick_replies;
+      }
+      // دعم إضافي للتنسيق العام الذي قد يظهر أحياناً
+      else if (msg.quickReplies && msg.quickReplies.quickReplies) {
+       buttons = msg.quickReplies.quickReplies;
+      }
+     });
+
+     if (buttons.length > 0) {
+      renderQuickReplies(buttons);
      }
+    } else if (data.fulfillmentText) {
+     appendMessage(data.fulfillmentText, 'bot');
     }
 
    } catch (error) {
-    setWaitingState(false);
-    console.error('Fetch error:', error);
-    displayError(error.message);
+    if (messagesContainer.contains(loadingDiv)) messagesContainer.removeChild(loadingDiv);
+    console.error(error);
+    appendMessage("حدث خطأ في الاتصال.", 'bot');
    }
   }
 
-  // ----------------------------------------------------------------
-  // تهيئة الواجهة
-  // ----------------------------------------------------------------
-  document.addEventListener('DOMContentLoaded', () => {
-   // ربط زر الإرسال بالدالة
-   sendButton.addEventListener('click', () => sendMessage(userInput.value));
-
-   // إرسال رسالة الترحيب الافتراضية عند التحميل
-   sendMessage("/start");
+  document.getElementById('chat-form').addEventListener('submit', (e) => {
+   e.preventDefault();
+   sendMessage(userInput.value);
   });
+
+  // البدء
+  sendMessage('/start');
  </script>
 </body>
 
