@@ -166,7 +166,6 @@
       'Content-Type': 'application/json',
      },
      body: JSON.stringify({
-      // يتم استخدام session وهمي لأننا لا نستخدم Firebase للمصادقة
       session: 'projects/gifts-bot/agent/custom-session-id-123',
       queryInput: {
        text: {
@@ -185,9 +184,17 @@
     }
 
     const data = await response.json();
+
+    // 🛑 الفحص الصارم للإصلاح
     const queryResult = data.queryResult;
 
-    // 🛑 NEW LOGIC: Extract fulfillment text and quick replies from the messages array
+    if (!queryResult) {
+     // إذا لم يتم العثور على queryResult، فهذا يعني أن Webhook أرسل JSON غير متوافق
+     console.error("Malformed Webhook Response:", data);
+     throw new Error("تنسيق رد Webhook غير صالح. يُرجى فحص إعدادات الـ Webhook.");
+    }
+
+    // 🛑 استخراج النص والـ Quick Replies من الرسائل
     const textMessage = queryResult?.fulfillmentMessages?.find(m => m.text?.text?.length > 0);
     const quickRepliesMessage = queryResult?.fulfillmentMessages?.find(m => m.quickReplies?.quickReplies?.length > 0);
 
@@ -195,10 +202,10 @@
      type: 'TEXT',
      text: queryResult.fulfillmentText || (textMessage?.text?.text?.[0] || "لم يتم الحصول على رد نصي."),
      quickReplies: quickRepliesMessage?.quickReplies?.quickReplies || [],
-     product: null // Placeholder for product card data
+     product: null
     };
 
-    // Crude check for product card content (to support the hardcoded example)
+    // فحص البطاقة (للاستجابة التجريبية)
     if (botResponse.text && botResponse.text.includes("محفظة") && botResponse.text.includes("جنيه")) {
      const priceMatch = botResponse.text.match(/السعر: \*?(\d+)\*? جنيه/);
      botResponse.type = 'PRODUCT_CARD';
@@ -217,7 +224,7 @@
     console.error("API Call FAILED:", error);
     return {
      type: 'TEXT',
-     text: `🛑 فشل الاتصال. تأكد من أن Webhook يعمل وأن الرابط صحيح. الرسالة: ${error.message}`,
+     text: `🛑 فشل الاتصال. الرسالة: ${error.message}`,
      quickReplies: []
     };
    }
@@ -248,7 +255,6 @@
     setIsTyping(true);
     setPlaceholder('الروبوت يكتب...');
 
-    // Scroll immediately after user sends message
     setTimeout(scrollToBottom, 0);
 
     const fulfillmentResponse = await fetchFulfillmentResponse(userQuery);
@@ -267,7 +273,6 @@
 
     setMessages((prev) => [...prev, botMessage]);
 
-    // Scroll after bot responds
     setTimeout(scrollToBottom, 50);
 
    }, [input, isTyping]);
@@ -278,14 +283,13 @@
 
    const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
-     e.preventDefault(); // Prevent new line in input
+     e.preventDefault();
      handleSend();
     }
    };
 
    // Initial Welcome Message
    useEffect(() => {
-    // Send an automatic "مرحبا" message to trigger the bot's flow on load
     const sendInitialMessage = async () => {
      const fulfillmentResponse = await fetchFulfillmentResponse('مرحبا');
      const initialBotMessage = {
@@ -293,23 +297,25 @@
       sender: 'bot',
       type: fulfillmentResponse.type,
       text: fulfillmentResponse.text,
-      quickReplies: fulfillmentResponse.quickReplies.length > 0 ? fulfillmentResponse.quickReplies : ['عرض الأقسام', 'أفضل التوصيات'], // Fallback quick replies
+      quickReplies: fulfillmentResponse.quickReplies.length > 0 ? fulfillmentResponse.quickReplies : ['عرض الأقسام', 'أفضل التوصيات'],
       product: fulfillmentResponse.product
      };
      setMessages([initialBotMessage]);
      setTimeout(scrollToBottom, 100);
     }
 
-    sendInitialMessage();
+    // التأكد من عدم وجود رسائل سابقة قبل إرسال 'مرحبا'
+    if (messages.length === 0) {
+     sendInitialMessage();
+    }
 
-   }, [handleSend]); // Dependency array should probably be empty if we want this only once, but `handleSend` needs to be defined outside `useEffect` if used here. I'll make it call `fetchFulfillmentResponse` directly for stability.
+   }, []);
 
 
    const renderMessageContent = (message) => {
     if (message.type === 'PRODUCT_CARD') {
      return <ProductCard product={message.product} />;
     }
-    // Check for quick replies array existence to prevent display issues
     const textContent = message.text || "لم يتم الحصول على رد نصي.";
     return (
      <p className="text-gray-700 whitespace-pre-wrap">{textContent}</p>
@@ -393,7 +399,6 @@
         />
         <button
          onClick={() => handleSend()}
-         // 🛑 زر الإرسال يعمل الآن بشكل صحيح، حيث يتم تفعيله إذا كان هناك نص وغير مفعل إذا كان الروبوت يكتب
          className={`p-3 rounded-lg text-white transition duration-150 ${input.trim() && !isTyping ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-gray-400 cursor-not-allowed'
           }`}
          disabled={!input.trim() || isTyping}
@@ -408,7 +413,6 @@
    );
   };
 
-  // 🛑 FIX: تحديث طريقة عرض React إلى createRoot
   ReactDOM.createRoot(document.getElementById('root')).render(<App />);
  </script>
 </body>
