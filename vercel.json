@@ -1,0 +1,21 @@
+{
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Firebase-API-Key",
+          "value": "$VITE_FIREBASE_API_KEY"
+        },
+        {
+          "key": "X-Firebase-Project-Id",
+          "value": "$VITE_FIREBASE_PROJECT_ID"
+        },
+        {
+          "key": "X-Firebase-App-Id",
+          "value": "$VITE_FIREBASE_APP_ID"
+        }
+      ]
+    }
+  ]
+}

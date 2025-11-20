@@ -14,57 +14,98 @@
 
  <!-- Firebase SDKs for Firestore and Auth -->
  <script type="module">
-  // استيراد جميع الدوال المطلوبة
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
   import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-  // تم استيراد الدوال المطلوبة في كود React
   import { getFirestore, doc, setDoc, onSnapshot, collection, query, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-  // === 1. التكوين المباشر لـ Firebase ===
-  const firebaseConfig = {
-   apiKey: "AIzaSyDh2miXzTIza7u85ygQMgPnvGnjNa13WAM",
-   authDomain: "giftsbot-eslam.firebaseapp.com",
-   projectId: "giftsbot-eslam",
-   storageBucket: "giftsbot-eslam.firebasestorage.app",
-   messagingSenderId: "61353800748",
-   appId: "1:61353800748:web:6a4bc3ce09f5bb4db70d89"
+  // === 1. دالة قراءة المتغيرات من HTTP Headers ===
+  // هذه الدالة تعتمد على أن Vercel قام بحقن المتغيرات في Headers
+  const getFirebaseConfigFromHeaders = () => {
+   // الوصول إلى قيم Headers باستخدام متغيرات تم تعريفها بواسطة Vercel/Headers
+   // (هذا يعتمد على الإعداد في ملف vercel.json)
+   const apiKey = document.documentElement.getAttribute('data-api-key') || '';
+   const projectId = document.documentElement.getAttribute('data-project-id') || '';
+   const appId = document.documentElement.getAttribute('data-app-id') || '';
+
+   if (!apiKey || !projectId || !appId) {
+    console.error("Firebase API keys are missing from environment or headers. Check Vercel config.");
+    return null;
+   }
+
+   return {
+    apiKey: apiKey,
+    authDomain: `${projectId}.firebaseapp.com`,
+    projectId: projectId,
+    storageBucket: `${projectId}.appspot.com`,
+    messagingSenderId: "61353800748", // قيمة ثابتة يمكن تركها
+    appId: appId
+   };
   };
 
-  window.appId = firebaseConfig.projectId;
+  // دالة يتم استدعائها لجلب الهيدرز من الطلب
+  async function fetchAndInitializeFirebase() {
+   try {
+    // نقوم بطلب بسيط لنفس الصفحة لجلب الـ Headers التي حقنها Vercel
+    const response = await fetch(window.location.href, { method: 'HEAD' });
 
-  // === 2. تهيئة Firebase ===
-  if (firebaseConfig.projectId) {
-   const app = initializeApp(firebaseConfig);
-   window.db = getFirestore(app);
-   window.auth = getAuth(app);
+    // قراءة الـ Headers التي قمنا بتعريفها في vercel.json
+    const apiKey = response.headers.get('x-firebase-api-key');
+    const projectId = response.headers.get('x-firebase-project-id');
+    const appId = response.headers.get('x-firebase-app-id');
 
-   window.isFirebaseAvailable = true; // علامة لـ React
+    const firebaseConfig = {
+     apiKey: apiKey,
+     authDomain: `${projectId}.firebaseapp.com`,
+     projectId: projectId,
+     storageBucket: `${projectId}.appspot.com`,
+     messagingSenderId: "61353800748",
+     appId: appId
+    };
 
-   // 📢 الحل: تمرير دوال Firestore بشكل صريح إلى الكائن window
-   // هذا يسمح لكود React (في وسم Babel) بالوصول إليها.
-   window.collection = collection;
-   window.doc = doc;
-   window.setDoc = setDoc;
-   window.onSnapshot = onSnapshot;
-   window.query = query;
-
-   // تسجيل الدخول المجهول لتحديد userId
-   onAuthStateChanged(window.auth, async (user) => {
-    if (!user) {
-     try {
-      await signInAnonymously(window.auth);
-      console.log("Signed in anonymously.");
-     } catch (error) {
-      console.error("Firebase Sign-In Failed:", error);
-     }
+    if (!firebaseConfig.projectId || !firebaseConfig.apiKey) {
+     // إذا فشل جلب الـ headers، نستخدم التخزين المؤقت
+     window.isFirebaseAvailable = false;
+     console.error("Failed to retrieve Firebase configuration from Vercel headers.");
+     return;
     }
-   });
-   setLogLevel('Debug');
-   console.log("Firebase Initialized using Hardcoded Config.");
-  } else {
-   console.error("Firebase Config is missing or invalid. Using sessionStorage for message persistence.");
-   window.isFirebaseAvailable = false;
+
+    // === 2. تهيئة Firebase ===
+    window.appId = firebaseConfig.projectId;
+
+    const app = initializeApp(firebaseConfig);
+    window.db = getFirestore(app);
+    window.auth = getAuth(app);
+    window.isFirebaseAvailable = true;
+
+    // 📢 تمرير دوال Firestore بشكل صريح إلى الكائن window
+    window.collection = collection;
+    window.doc = doc;
+    window.setDoc = setDoc;
+    window.onSnapshot = onSnapshot;
+    window.query = query;
+
+    // تسجيل الدخول المجهول لتحديد userId
+    onAuthStateChanged(window.auth, async (user) => {
+     if (!user) {
+      try {
+       await signInAnonymously(window.auth);
+       console.log("Signed in anonymously.");
+      } catch (error) {
+       console.error("Firebase Sign-In Failed:", error);
+      }
+     }
+    });
+    setLogLevel('Debug');
+    console.log("Firebase Initialized using Vercel Headers.");
+
+   } catch (error) {
+    console.error("Error during Firebase initialization (fetch headers failed):", error);
+    window.isFirebaseAvailable = false;
+   }
   }
+
+  // بدء عملية التهيئة فوراً
+  fetchAndInitializeFirebase();
  </script>
 
  <style>
@@ -341,6 +382,12 @@
 
    // 1. منطق المصادقة والتحميل (يدعم Firestore كأولوية، ثم SessionStorage)
    useEffect(() => {
+    // الانتظار حتى يتم تهيئة Firebase (سواء نجح أم فشل)
+    if (typeof window.isFirebaseAvailable === 'undefined') {
+     // Firebase not initialized yet, wait for fetchAndInitializeFirebase to complete
+     return;
+    }
+
     if (!isFirebaseAvailable || !window.db || !window.auth) {
      // **الخطة البديلة:** تحميل من sessionStorage
      const loaded = loadMessagesFromSession();
@@ -399,6 +446,7 @@
        }
       }, (error) => {
        console.error("Error listening to messages:", error);
+       // إذا حدث خطأ في onSnapshot (مثل قواعد الأمان)، نعود للتخزين المؤقت
        if (!messages.length) handleSendInitialMessage();
        setIsFirebaseReady(true);
       });
@@ -409,6 +457,7 @@
       setUserId(null);
       setMessages([]);
       setIsFirebaseReady(true);
+      // يجب أن تتم المصادقة أولاً، ثم يتم التحميل، لكن هنا نطلق رسالة الترحيب فقط إذا لم يكن هناك رسائل
       if (!messages.length) handleSendInitialMessage();
      }
     });
