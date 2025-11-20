@@ -9,14 +9,14 @@
  <script src="https://cdn.tailwindcss.com"></script>
  <!-- React and Babel CDNs -->
  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
- <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+ <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
 
  <!-- Firebase SDKs for Firestore and Auth -->
  <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
   import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-  import { getFirestore, doc, setDoc, onSnapshot, collection, query, orderBy, limit, deleteDoc, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+  import { getFirestore, doc, setDoc, onSnapshot, collection, query, orderBy, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
   // === معالجة متغيرات البيئة بدقة ===
   const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -29,24 +29,24 @@
     firebaseConfig = JSON.parse(__firebase_config);
    } catch (e) {
     console.error("Error parsing __firebase_config:", e);
-    // يبقى firebaseConfig على null
    }
   }
 
+  // تهيئة Firebase فقط إذا توفرت الإعدادات
   if (firebaseConfig) {
    const app = initializeApp(firebaseConfig);
    window.db = getFirestore(app);
    window.auth = getAuth(app);
-   window.appId = appId; // إتاحة appId على الـ window لاستخدامه في React
+   window.appId = appId;
+   window.isFirebaseAvailable = true; // علامة لـ React
 
-   // تسجيل الدخول باستخدام الرمز المخصص أو مجهول
+   // تسجيل الدخول
    onAuthStateChanged(window.auth, async (user) => {
     if (!user) {
      try {
       if (initialAuthToken) {
        await signInWithCustomToken(window.auth, initialAuthToken);
       } else {
-       // تسجيل دخول مجهول إذا لم يتوفر رمز مخصص
        await signInAnonymously(window.auth);
       }
      } catch (error) {
@@ -54,11 +54,10 @@
      }
     }
    });
-   // تفعيل تسجيل الأخطاء للمساعدة في المراجعة
    setLogLevel('Debug');
   } else {
-   // هذا هو الموقف الذي ينتج عنه رسالة الخطأ
-   console.error("Firebase config is missing or invalid. Check the __firebase_config variable.");
+   console.error("Firebase config is missing or invalid. Using sessionStorage for message persistence.");
+   window.isFirebaseAvailable = false; // علامة لـ React
   }
  </script>
 
@@ -148,6 +147,30 @@
 
   // 🛑 نقطة النهاية للـ Webhook
   const FULFILLMENT_ENDPOINT_URL = 'https://gifts-bot-webhook.vercel.app/webhook';
+  const SESSION_STORAGE_KEY = 'gift_shop_chat_messages';
+
+  // === دالة تحميل الرسائل من sessionStorage ===
+  const loadMessagesFromSession = () => {
+   const storedMessages = sessionStorage.getItem(SESSION_STORAGE_KEY);
+   if (storedMessages) {
+    try {
+     return JSON.parse(storedMessages);
+    } catch (e) {
+     console.error("Error parsing messages from sessionStorage", e);
+     return [];
+    }
+   }
+   return [];
+  };
+
+  // === دالة حفظ الرسائل إلى sessionStorage ===
+  const saveMessagesToSession = (msgs) => {
+   try {
+    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(msgs));
+   } catch (e) {
+    console.error("Error saving messages to sessionStorage", e);
+   }
+  };
 
   // === SVG Icons ===
   const BagIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4" /><line x1="3" x2="21" y1="6" y2="6" /><path d="M16 10a4 4 0 0 1-8 0" /><title>أيقونة المتجر</title></svg>);
@@ -158,8 +181,7 @@
 
 
   // =================================================================
-  // المكون الفرعي: بطاقة المنتج Rich Content
-  // (لا حاجة للتغيير هنا)
+  // المكون الفرعي: بطاقة المنتج Rich Content (بدون تغيير)
   // =================================================================
   const ProductCard = ({ product }) => {
    const defaultImageUrl = "https://placehold.co/400x200/4F46E5/FFFFFF?text=Product+Image";
@@ -211,7 +233,7 @@
 
 
   // =================================================================
-  // دالة إرسال الاستعلام للـ Fulfillment API
+  // دالة إرسال الاستعلام للـ Fulfillment API (بدون تغيير)
   // =================================================================
   const MAX_RETRIES = 3;
   const fetchFulfillmentResponse = async (query, retries = 0) => {
@@ -288,7 +310,7 @@
 
 
   // =================================================================
-  // المكون الرئيسي: واجهة الدردشة (مع دمج Firestore)
+  // المكون الرئيسي: واجهة الدردشة (مع دمج Firestore / sessionStorage)
   // =================================================================
   const App = () => {
    const [messages, setMessages] = useState([]);
@@ -296,41 +318,42 @@
    const [isTyping, setIsTyping] = useState(false);
    const messagesEndRef = useRef(null);
    const [placeholder, setPlaceholder] = useState('اكتب رسالتك...');
-   // حالة Firebase
    const [isFirebaseReady, setIsFirebaseReady] = useState(false);
    const [userId, setUserId] = useState(null);
+   const isFirebaseAvailable = typeof window.isFirebaseAvailable !== 'undefined' ? window.isFirebaseAvailable : false;
 
    const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
    };
 
-   // 1. منطق المصادقة والتحميل من Firestore
+   // 1. منطق المصادقة والتحميل (يدعم Firestore كأولوية، ثم SessionStorage)
    useEffect(() => {
-    // التحقق مما إذا كانت الكائنات العامة لـ Firebase متوفرة
-    if (!window.db || !window.auth) {
-     // إذا لم يكن Firebase مهيئًا (بسبب عدم توفر config)، نعتبره جاهزًا ولكن لا يتم الحفظ
+    if (!isFirebaseAvailable) {
+     // **الخطة البديلة:** تحميل من sessionStorage
+     const loaded = loadMessagesFromSession();
+     setMessages(loaded);
      setIsFirebaseReady(true);
+     if (loaded.length === 0) {
+      handleSendInitialMessage();
+     }
+     setTimeout(scrollToBottom, 50);
      return;
     }
 
+    // **الأولوية:** الاتصال بـ Firestore
     const unsubscribeAuth = window.auth.onAuthStateChanged(user => {
      if (user) {
       const currentUserId = user.uid || crypto.randomUUID();
       setUserId(currentUserId);
 
-      // عند تسجيل الدخول، نبدأ الاستماع للرسائل
       const messagesCollectionRef = collection(window.db, `artifacts/${window.appId}/users/${currentUserId}/chat_messages`);
-
-      // استعلام لجلب الرسائل بترتيب زمني
       const q = query(messagesCollectionRef, orderBy('timestamp', 'asc'));
 
       const unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
        const loadedMessages = snapshot.docs.map(doc => {
         const data = doc.data();
-        // نحول timestamp إلى رقم (إذا كان موجودًا)
         const timestampValue = data.timestamp ? (data.timestamp.seconds * 1000) : Date.now();
 
-        // تحليل الحمولة (Payload) إذا كانت موجودة ومخزنة كنص JSON
         let richContent = {};
         try {
          if (data.product) richContent.product = JSON.parse(data.product);
@@ -354,18 +377,9 @@
        setIsFirebaseReady(true);
        setTimeout(scrollToBottom, 50);
 
-       // إذا لم يكن هناك رسائل، أرسل رسالة الترحيب
        if (loadedMessages.length === 0) {
-        // هنا نرسل الرسالة الأولية فقط إذا لم نكن قد أرسلناها بالفعل في هذا التحميل
-        if (!sessionStorage.getItem('initial_message_sent')) {
-         handleSendInitialMessage();
-         sessionStorage.setItem('initial_message_sent', 'true');
-        }
-       } else {
-        // إذا كانت هناك رسائل، لا حاجة لإرسال الرسالة الأولية مرة أخرى
-        sessionStorage.setItem('initial_message_sent', 'true');
+        handleSendInitialMessage();
        }
-
       }, (error) => {
        console.error("Error listening to messages:", error);
        setIsFirebaseReady(true);
@@ -373,58 +387,61 @@
 
       return () => unsubscribeSnapshot();
      } else {
-      // إذا لم يكن هناك مستخدم، نعتبره جاهزًا ولكن بدون بيانات محفوظة
+      // حالة عدم المصادقة
       setUserId(null);
       setMessages([]);
       setIsFirebaseReady(true);
-      // إذا لم يتم تهيئة Firebase (window.db غير موجود)، نعتمد على رسائل مؤقتة
-      if (!window.db && messages.length === 0) {
-       handleSendInitialMessage();
-      }
+      handleSendInitialMessage();
      }
     });
 
     return () => unsubscribeAuth();
-   }, []); // يتم التشغيل مرة واحدة عند التحميل
+   }, [isFirebaseAvailable]); // يعتمد على توفر Firebase
 
 
-   // دالة حفظ الرسالة في Firestore
-   const saveMessage = async (message) => {
-    if (!window.db || !userId) {
-     // إظهار تحذير في حال عدم التمكن من الحفظ
-     console.warn("Firestore or User ID not available. Message not saved.");
-     return;
+   // دالة حفظ الرسالة (تستخدم Firestore إذا متاح، وإلا sessionStorage)
+   const saveMessage = async (message, currentMessages) => {
+    // 1. منطق الحفظ إلى Firestore
+    if (isFirebaseAvailable && window.db && userId) {
+     try {
+      const messagesCollectionRef = collection(window.db, `artifacts/${window.appId}/users/${userId}/chat_messages`);
+
+      const payloadToSave = {
+       text: message.text,
+       sender: message.sender,
+       type: message.type,
+       quickReplies: message.quickReplies || [],
+       timestamp: new Date(),
+      };
+
+      if (message.product) payloadToSave.product = JSON.stringify(message.product);
+      if (message.customButton) payloadToSave.customButton = JSON.stringify(message.customButton);
+
+      const docId = Date.now().toString();
+      await setDoc(doc(messagesCollectionRef, docId), payloadToSave);
+      return; // تم الحفظ بنجاح، onSnapshot سيتولى تحديث messages
+     } catch (e) {
+      console.error("Failed to save message to Firestore:", e);
+      // إذا فشل الحفظ في Firestore، يستمر الكود إلى الخطة البديلة (SessionStorage)
+     }
     }
 
-    try {
-     const messagesCollectionRef = collection(window.db, `artifacts/${window.appId}/users/${userId}/chat_messages`);
+    // 2. منطق الحفظ إلى SessionStorage (الخطة البديلة)
+    const updatedMessages = [...currentMessages, message];
+    setMessages(updatedMessages);
+    saveMessagesToSession(updatedMessages);
 
-     // تحويل الكائنات المعقدة إلى JSON Strings قبل الحفظ
-     const payloadToSave = {
-      text: message.text,
-      sender: message.sender,
-      type: message.type,
-      quickReplies: message.quickReplies || [],
-      timestamp: new Date(),
-     };
-
-     if (message.product) payloadToSave.product = JSON.stringify(message.product);
-     if (message.customButton) payloadToSave.customButton = JSON.stringify(message.customButton);
-
-     // نستخدم timestamp كرقم للـ docId لضمان الترتيب التلقائي
-     const docId = Date.now().toString();
-     await setDoc(doc(messagesCollectionRef, docId), payloadToSave);
-
-    } catch (e) {
-     console.error("Failed to save message to Firestore:", e);
+    // تنبيه لغياب الحفظ الدائم
+    if (!isFirebaseAvailable) {
+     console.warn("Using temporary sessionStorage. Messages will be lost when the tab is closed.");
     }
    };
 
 
    const handleSendInitialMessage = useCallback(async () => {
-    // منع الإرسال الأولي إذا كانت هناك رسائل بالفعل
     if (messages.length > 0) return;
 
+    // رسالة المستخدم الافتراضية للترحيب
     const fulfillmentResponse = await fetchFulfillmentResponse('مرحبا');
     const initialBotMessage = {
      id: Date.now(),
@@ -433,42 +450,31 @@
      text: fulfillmentResponse.text,
      quickReplies: fulfillmentResponse.quickReplies.length > 0 ? fulfillmentResponse.quickReplies : ['عرض الأقسام', 'أفضل التوصيات'],
      product: fulfillmentResponse.product,
-     customButton: fulfillmentResponse.customButton
+     customButton: fulfillmentResponse.customButton,
+     timestamp: Date.now()
     };
 
-    // إذا كان Firebase متاحًا، يتم الحفظ وسيتم التحديث عبر onSnapshot
-    if (userId && window.db) {
-     await saveMessage(initialBotMessage);
-    } else {
-     // إذا لم يكن Firebase متاحًا (config مفقود)، نضيفها مؤقتاً
-     setMessages([initialBotMessage]);
-    }
-   }, [userId, messages.length]);
+    // حفظ رسالة البوت الأولية (سيتم استخدام Firestore أو SessionStorage)
+    await saveMessage(initialBotMessage, messages);
+
+   }, [messages.length, isFirebaseAvailable, userId]);
 
 
-   // عند اكتمال تحميل البيانات وعدم وجود رسائل، يتم إرسال رسالة الترحيب
-   useEffect(() => {
-    // إذا كان Firebase جاهزاً وحدثت المصادقة (أو فشلت) ولم يتم تحميل أي رسائل
-    if (isFirebaseReady && messages.length === 0 && !sessionStorage.getItem('initial_message_sent')) {
-     handleSendInitialMessage();
-    }
-   }, [isFirebaseReady, messages.length, handleSendInitialMessage]);
-
-
-   // 2. منطق الإرسال (مُعدل للحفظ)
+   // 2. منطق الإرسال
    const handleSend = useCallback(async (query) => {
     const userQuery = query || input;
     if (userQuery.trim() === '' || isTyping || !isFirebaseReady) return;
 
     // رسالة المستخدم
-    const userMessage = { id: Date.now(), text: userQuery, sender: 'user', type: 'TEXT' };
-    // حفظ رسالة المستخدم في Firestore (سيتم تحديثها عبر onSnapshot)
-    if (userId && window.db) {
-     await saveMessage(userMessage);
-    } else {
-     // إذا لم يكن Firebase متاحًا، نعتمد على حالة React المؤقتة
+    const userMessage = { id: Date.now(), text: userQuery, sender: 'user', type: 'TEXT', timestamp: Date.now() };
+
+    // إضافة رسالة المستخدم إلى الـ state مؤقتاً قبل الحفظ أو الاستجابة
+    if (!isFirebaseAvailable) {
      setMessages(prev => [...prev, userMessage]);
     }
+
+    // حفظ رسالة المستخدم
+    await saveMessage(userMessage, messages);
 
     setInput('');
     setIsTyping(true);
@@ -490,20 +496,15 @@
      text: fulfillmentResponse.text,
      quickReplies: fulfillmentResponse.quickReplies,
      product: fulfillmentResponse.product,
-     customButton: fulfillmentResponse.customButton
+     customButton: fulfillmentResponse.customButton,
+     timestamp: Date.now() + 1
     };
 
-    // حفظ رسالة البوت في Firestore (سيقوم onSnapshot بتحديث الـ state)
-    if (userId && window.db) {
-     await saveMessage(botMessage);
-    } else {
-     // إذا لم يكن Firebase متاحًا، نعتمد على حالة React المؤقتة
-     setMessages(prev => [...prev, botMessage]);
-    }
+    // حفظ رسالة البوت (سيتم استخدام Firestore أو SessionStorage)
+    await saveMessage(botMessage, [...messages, userMessage]);
 
-   }, [input, isTyping, isFirebaseReady, userId]);
+   }, [input, isTyping, isFirebaseReady, isFirebaseAvailable, userId, messages]);
 
-   // ... (بقية الدوال لم تتغير) ...
 
    const handleQuickReply = (text) => {
     handleSend(text);
@@ -571,11 +572,16 @@
        <BagIcon className="ml-3" />
        <h1 className="text-lg font-bold">بوت متجر الهدايا (واجهة ويب)</h1>
        {userId && <p className="text-xs mr-auto opacity-70">المستخدم: {userId.substring(0, 8)}...</p>}
+       {!isFirebaseAvailable && (
+        <span className="mr-2 text-xs text-yellow-200 bg-indigo-800 p-1 rounded-full px-2">
+         تخزين مؤقت (Session)
+        </span>
+       )}
       </header>
 
       {/* نافذة الرسائل */}
       <div id="chat-messages" className="flex-1 p-4 space-y-4 overflow-y-auto bg-gray-100 chat-area-scroll">
-       {messages.map((message) => {
+       {messages.map((message, index) => {
         const isUser = message.sender === 'user';
         const isRichContent = message.type === 'PRODUCT_CARD' || message.type === 'CUSTOM_BUTTON';
 
@@ -588,7 +594,7 @@
 
         return (
          <div
-          key={message.id}
+          key={message.id || index}
           className={`flex ${isUser ? 'justify-start' : 'justify-end'}`}
          >
           <div className={`max-w-[75%] rounded-xl shadow-sm ${bubbleClasses}`}>
