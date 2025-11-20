@@ -19,10 +19,10 @@
   import { getFirestore, doc, setDoc, onSnapshot, collection, query, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
   // ===============================================================
-  // 🛑🛑🛑  الإعدادات الثابتة (لا تعديل هنا بعد إدخال مفاتيحك) 🛑🛑🛑
+  // 🛑🛑🛑  الإعدادات النهائية: تم إدخال مفتاح API الجديد 🛑🛑🛑
   // ===============================================================
-  // يجب أن تكون هذه القيم قد تم استبدالها بالفعل بقيمك الحقيقية
   const FIREBASE_CONFIG = {
+   // المفتاح الجديد الذي تم إنشاؤه: AlzaSyDknd3Efc48gB4FsufeFAsiK_5oMFZWHEY
    apiKey: "AIzaSyDknd3Efc48gB4FsufeFAsiK_5oMFZWHEY",
    projectId: "giftsbot-eslam",
    appId: "1:61353800748:web:6a4bc3ce09f5bb4db70d89",
@@ -74,6 +74,7 @@
        await signInAnonymously(window.auth);
        console.log("Firebase Sign-In Succeeded.");
       } catch (error) {
+       // هذا الخطأ يجب أن يكون قد اختفى الآن
        console.error("Firebase Sign-In Failed: (API Key might be invalid or permissions restricted)", error);
        window.isFirebaseAvailable = false;
       }
@@ -453,6 +454,10 @@
     // === الخطوة 2: دالة انتظار التهيئة والتنفيذ ===
     const checkInitialization = () => {
      if (window.isFirebaseAvailable !== undefined) {
+      // إذا فشلت التهيئة (بسبب مفتاح API)، سنقوم بالتحميل من sessionStorage
+      if (!window.isFirebaseAvailable) {
+       console.warn("Firebase failed initialization. Falling back to session storage.");
+      }
       if (isMounted) performDataLoading();
      } else {
       setTimeout(checkInitialization, 100);
