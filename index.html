@@ -19,20 +19,18 @@
   import { getFirestore, doc, setDoc, onSnapshot, collection, query, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
   // ===============================================================
-  // 🛑🛑🛑  الخطوة المطلوبة: أدخل مفاتيحك هنا مباشرة  🛑🛑🛑
+  // 🛑🛑🛑  الإعدادات الثابتة (لا تعديل هنا بعد إدخال مفاتيحك) 🛑🛑🛑
   // ===============================================================
-  // يجب استبدال قيم DUMMY_... بقيم مفاتيحك الحقيقية من إعدادات Firebase
+  // يجب أن تكون هذه القيم قد تم استبدالها بالفعل بقيمك الحقيقية
   const FIREBASE_CONFIG = {
-   apiKey: "AIzaSyDh2miXzTIza7u85ygQMgPnvGnjNa13WAM",      // استبدل هذا
+   apiKey: "AIzaSyBlN0B2F2t38YJ60W811l3eC08gC2u_Pko",
    projectId: "giftsbot-eslam",
    appId: "1:61353800748:web:6a4bc3ce09f5bb4db70d89",
    authDomain: "giftsbot-eslam.firebaseapp.com",
-   storageBucket: "giftsbot-eslam.firebasestorage.app",
+   storageBucket: "giftsbot-eslam.appspot.com",
    messagingSenderId: "61353800748",
   };
-  // ==============================================================="
-
-
+  // ===============================================================
 
 
   async function initializeFirebase() {
@@ -73,7 +71,6 @@
     onAuthStateChanged(window.auth, async (user) => {
      if (!user) {
       try {
-       // سيتم استخدام الـ apiKey الذي تم توفيره يدوياً
        await signInAnonymously(window.auth);
        console.log("Firebase Sign-In Succeeded.");
       } catch (error) {
@@ -370,16 +367,7 @@
    useEffect(() => {
     let isMounted = true;
 
-    // نستخدم دالة انتظار للتأكد من أن initializeFirebase انتهت
-    const checkInitialization = () => {
-     if (window.isFirebaseAvailable !== undefined) {
-      if (isMounted) performDataLoading();
-     } else {
-      setTimeout(checkInitialization, 100);
-     }
-    };
-    checkInitialization();
-
+    // === الخطوة 1: تعريف دالة تحميل البيانات ===
     const performDataLoading = () => {
      if (!isFirebaseAvailable || !window.db || !window.auth) {
       // **الخطة البديلة:** تحميل من sessionStorage
@@ -462,8 +450,20 @@
      return () => unsubscribeAuth();
     };
 
+    // === الخطوة 2: دالة انتظار التهيئة والتنفيذ ===
+    const checkInitialization = () => {
+     if (window.isFirebaseAvailable !== undefined) {
+      if (isMounted) performDataLoading();
+     } else {
+      setTimeout(checkInitialization, 100);
+     }
+    };
+
+    // === الخطوة 3: بدء التنفيذ ===
+    checkInitialization();
+
     return () => { isMounted = false; };
-   }, [isFirebaseAvailable, firestoreAppId]);
+   }, [isFirebaseAvailable, firestoreAppId]); // تم حذف messages من هنا لتجنب حلقة لا نهائية
 
 
    // دالة حفظ الرسالة (تستخدم Firestore إذا متاح، وإلا sessionStorage)
@@ -507,9 +507,6 @@
 
 
    const handleSendInitialMessage = useCallback(async () => {
-    // يتم استدعاء هذه الدالة فقط إذا لم يتم تحميل أي رسائل
-    if (messages.length > 0) return;
-
     // رسالة المستخدم الافتراضية للترحيب
     const fulfillmentResponse = await fetchFulfillmentResponse('مرحبا');
     const initialBotMessage = {
@@ -524,9 +521,10 @@
     };
 
     // حفظ رسالة البوت الأولية (سيتم استخدام Firestore أو SessionStorage)
+    // نستخدم messages.length هنا للتأكد من أنها أول رسالة فقط
     await saveMessage(initialBotMessage, messages);
 
-   }, [messages.length, isFirebaseAvailable, firestoreAppId, userId, messages]);
+   }, [messages, isFirebaseAvailable, firestoreAppId, userId]);
 
 
    // 2. منطق الإرسال
@@ -569,8 +567,11 @@
      timestamp: Date.now() + 1
     };
 
+    // في حالة SessionStorage، يجب أن نضيف رسالة المستخدم يدوياً قبل حفظ رسالة البوت
+    const messagesForBotSave = isFirebaseAvailable ? messages : [...messages, userMessage];
+
     // حفظ رسالة البوت (سيتم استخدام Firestore أو SessionStorage)
-    await saveMessage(botMessage, [...messages, userMessage]);
+    await saveMessage(botMessage, messagesForBotSave);
 
    }, [input, isTyping, isFirebaseReady, isFirebaseAvailable, userId, messages, firestoreAppId]);
 
