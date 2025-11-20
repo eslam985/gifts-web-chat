@@ -18,66 +18,49 @@
   import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
   import { getFirestore, doc, setDoc, onSnapshot, collection, query, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-  // === 1. دالة قراءة المتغيرات من HTTP Headers ===
-  // هذه الدالة تعتمد على أن Vercel قام بحقن المتغيرات في Headers
-  const getFirebaseConfigFromHeaders = () => {
-   // الوصول إلى قيم Headers باستخدام متغيرات تم تعريفها بواسطة Vercel/Headers
-   // (هذا يعتمد على الإعداد في ملف vercel.json)
-   const apiKey = document.documentElement.getAttribute('data-api-key') || '';
-   const projectId = document.documentElement.getAttribute('data-project-id') || '';
-   const appId = document.documentElement.getAttribute('data-app-id') || '';
+  // === دالة تهيئة Firebase من Vercel Environment Variables ===
+  async function initializeFirebase() {
+   window.isFirebaseAvailable = false;
 
-   if (!apiKey || !projectId || !appId) {
-    console.error("Firebase API keys are missing from environment or headers. Check Vercel config.");
-    return null;
+   // 🛑🛑🛑 قراءة القيم من متغيرات البيئة المتاحة عالمياً 🛑🛑🛑
+   // نستخدم متغيرات البيئة المعرفة في لوحة تحكم Vercel
+   const apiKey = process.env.VITE_FIREBASE_API_KEY;
+   const projectId = process.env.VITE_FIREBASE_PROJECT_ID;
+   const appId = process.env.VITE_FIREBASE_APP_ID;
+
+   // 📢 طباعة القيم المقروءة للتصحيح 📢
+   console.log("--- Vercel Environment Variable Debug ---");
+   console.log("API Key Read:", apiKey ? (apiKey.substring(0, 5) + '...') : 'Missing');
+   console.log("Project ID Read:", projectId || 'Missing');
+   console.log("App ID Read:", appId ? (appId.substring(0, 5) + '...') : 'Missing');
+   console.log("-----------------------------------------");
+
+
+   if (!projectId || !apiKey || !appId) {
+    console.error("Vercel Environment variables missing or empty. Cannot initialize Firebase.");
+    window.isFirebaseAvailable = false;
+    return;
    }
 
-   return {
+   const firebaseConfig = {
     apiKey: apiKey,
     authDomain: `${projectId}.firebaseapp.com`,
     projectId: projectId,
     storageBucket: `${projectId}.appspot.com`,
-    messagingSenderId: "61353800748", // قيمة ثابتة يمكن تركها
+    messagingSenderId: "61353800748",
     appId: appId
    };
-  };
 
-  // دالة يتم استدعائها لجلب الهيدرز من الطلب
-  async function fetchAndInitializeFirebase() {
+   // === 2. تهيئة Firebase ===
+   window.appId = firebaseConfig.projectId;
+
    try {
-    // نقوم بطلب بسيط لنفس الصفحة لجلب الـ Headers التي حقنها Vercel
-    const response = await fetch(window.location.href, { method: 'HEAD' });
-
-    // قراءة الـ Headers التي قمنا بتعريفها في vercel.json
-    const apiKey = response.headers.get('x-firebase-api-key');
-    const projectId = response.headers.get('x-firebase-project-id');
-    const appId = response.headers.get('x-firebase-app-id');
-
-    const firebaseConfig = {
-     apiKey: apiKey,
-     authDomain: `${projectId}.firebaseapp.com`,
-     projectId: projectId,
-     storageBucket: `${projectId}.appspot.com`,
-     messagingSenderId: "61353800748",
-     appId: appId
-    };
-
-    if (!firebaseConfig.projectId || !firebaseConfig.apiKey) {
-     // إذا فشل جلب الـ headers، نستخدم التخزين المؤقت
-     window.isFirebaseAvailable = false;
-     console.error("Failed to retrieve Firebase configuration from Vercel headers.");
-     return;
-    }
-
-    // === 2. تهيئة Firebase ===
-    window.appId = firebaseConfig.projectId;
-
     const app = initializeApp(firebaseConfig);
     window.db = getFirestore(app);
     window.auth = getAuth(app);
     window.isFirebaseAvailable = true;
 
-    // 📢 تمرير دوال Firestore بشكل صريح إلى الكائن window
+    // تمرير دوال Firestore بشكل صريح إلى الكائن window
     window.collection = collection;
     window.doc = doc;
     window.setDoc = setDoc;
@@ -89,23 +72,23 @@
      if (!user) {
       try {
        await signInAnonymously(window.auth);
-       console.log("Signed in anonymously.");
+       console.log("Firebase Sign-In Succeeded.");
       } catch (error) {
        console.error("Firebase Sign-In Failed:", error);
+       window.isFirebaseAvailable = false;
       }
      }
     });
     setLogLevel('Debug');
-    console.log("Firebase Initialized using Vercel Headers.");
-
+    console.log("Firebase Initialized using Vercel Environment Variables.");
    } catch (error) {
-    console.error("Error during Firebase initialization (fetch headers failed):", error);
+    console.error("Error during Firebase initialization (API Key or Config issue):", error);
     window.isFirebaseAvailable = false;
    }
   }
 
   // بدء عملية التهيئة فوراً
-  fetchAndInitializeFirebase();
+  initializeFirebase();
  </script>
 
  <style>
@@ -383,8 +366,8 @@
    // 1. منطق المصادقة والتحميل (يدعم Firestore كأولوية، ثم SessionStorage)
    useEffect(() => {
     // الانتظار حتى يتم تهيئة Firebase (سواء نجح أم فشل)
-    if (typeof window.isFirebaseAvailable === 'undefined') {
-     // Firebase not initialized yet, wait for fetchAndInitializeFirebase to complete
+    if (typeof window.isFirebaseAvailable === 'undefined' || !isFirebaseReady) {
+     // Firebase not initialized yet, wait for initializeFirebase to complete
      return;
     }
 
