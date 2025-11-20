@@ -15,46 +15,74 @@
  <!-- Firebase SDKs for Firestore and Auth -->
  <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-  import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-  import { getFirestore, doc, setDoc, onSnapshot, collection, query, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+  import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+  import { getFirestore, doc, setDoc, onSnapshot, collection, query, orderBy, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-  // === 1. التكوين المباشر لـ Firebase (لأغراض التشخيص) ===
-  // يتم استخدام التكوين المقدم من قبلك مباشرة
-  const firebaseConfig = {
-   apiKey: "AIzaSyDh2miXzTIza7u85ygQMgPnvGnjNa13WAM",
-   authDomain: "giftsbot-eslam.firebaseapp.com",
-   projectId: "giftsbot-eslam",
-   storageBucket: "giftsbot-eslam.firebasestorage.app",
-   messagingSenderId: "61353800748",
-   appId: "1:61353800748:web:6a4bc3ce09f5bb4db70d89"
-  };
+  // === 1. معالجة متغيرات البيئة بدقة (يدعم البيئة المحلية و Vercel) ===
+  const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+  const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-  // استخدام projectId كـ appId لمسار Firestore
-  window.appId = firebaseConfig.projectId;
+  let firebaseConfig = null;
+
+  // **أولوية 1: التحقق من متغير البيئة الخاص (Canvas)**
+  if (typeof __firebase_config !== 'undefined' && __firebase_config && __firebase_config.trim() !== '') {
+   try {
+    firebaseConfig = JSON.parse(__firebase_config);
+   } catch (e) {
+    console.error("Error parsing __firebase_config:", e);
+   }
+  }
+
+  // **أولوية 2: إذا لم يتوفر، قم بإنشائه من متغيرات Vercel القياسية (VITE_)**
+  // ملاحظة: Vercel يقوم بتحويل متغيرات build time إلى window.env أو process.env، ولكن في حالة ملف HTML واحد، قد نحتاج للوصول إليها مباشرة إذا تم حقنها.
+  // بما أن Vercel يتعامل مع ملفات HTML بشكل ثابت، سنفترض أنها يمكن أن تُحقن كمتغيرات في البناء.
+  // للتبسيط في ملف HTML واحد، نعتمد على أن المتغيرات تكون متاحة بشكل ما، ولكن يجب أن نكون مستعدين لإنشائها:
+  if (!firebaseConfig &&
+   (typeof process !== 'undefined' && process.env.VITE_FIREBASE_PROJECT_ID) ||
+   (typeof window !== 'undefined' && window.VITE_FIREBASE_PROJECT_ID)
+  ) {
+   const Vercel_API_KEY = (typeof process !== 'undefined' ? process.env.VITE_FIREBASE_API_KEY : null) || (typeof window !== 'undefined' ? window.VITE_FIREBASE_API_KEY : null);
+   const Vercel_PROJECT_ID = (typeof process !== 'undefined' ? process.env.VITE_FIREBASE_PROJECT_ID : null) || (typeof window !== 'undefined' ? window.VITE_FIREBASE_PROJECT_ID : null);
+   const Vercel_APP_ID = (typeof process !== 'undefined' ? process.env.VITE_FIREBASE_APP_ID : null) || (typeof window !== 'undefined' ? window.VITE_FIREBASE_APP_ID : null);
+
+   if (Vercel_API_KEY && Vercel_PROJECT_ID && Vercel_APP_ID) {
+    console.log("Using Vercel Environment Variables for Firebase Config.");
+    firebaseConfig = {
+     apiKey: Vercel_API_KEY,
+     authDomain: `${Vercel_PROJECT_ID}.firebaseapp.com`,
+     projectId: Vercel_PROJECT_ID,
+     appId: Vercel_APP_ID,
+     // تحتاج لإضافة StorageBucket و messagingSenderId يدوياً هنا إذا أردت التخزين الكامل، لكنها غير ضرورية لـ Firestore فقط
+    };
+    // يتم تجاهل __app_id الافتراضي هنا ونستخدم Vercel_PROJECT_ID كـ appId لـ Firestore Path
+    window.appId = Vercel_PROJECT_ID;
+   }
+  }
+
+  // إذا لم يتم العثور على أي إعدادات، لا يوجد firebaseConfig
 
   // === 2. تهيئة Firebase ===
-  if (firebaseConfig.projectId) {
+  if (firebaseConfig) {
    const app = initializeApp(firebaseConfig);
    window.db = getFirestore(app);
    window.auth = getAuth(app);
 
    window.isFirebaseAvailable = true; // علامة لـ React
 
-   // تسجيل الدخول المجهول لتحديد userId
+   // تسجيل الدخول
    onAuthStateChanged(window.auth, async (user) => {
     if (!user) {
      try {
+      // نستخدم تسجيل الدخول المجهول كبديل آمن وسريع في التطبيقات العامة
       await signInAnonymously(window.auth);
-      console.log("Signed in anonymously.");
      } catch (error) {
       console.error("Firebase Sign-In Failed:", error);
      }
     }
    });
    setLogLevel('Debug');
-   console.log("Firebase Initialized using Hardcoded Config.");
   } else {
-   console.error("Firebase Config is missing or invalid. Using sessionStorage for message persistence.");
+   console.error("Firebase config is missing or invalid. Using sessionStorage for message persistence.");
    window.isFirebaseAvailable = false; // علامة لـ React
   }
  </script>
@@ -170,7 +198,7 @@
    }
   };
 
-  // === SVG Icons (لا تغيير هنا) ===
+  // === SVG Icons ===
   const BagIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4" /><line x1="3" x2="21" y1="6" y2="6" /><path d="M16 10a4 4 0 0 1-8 0" /><title>أيقونة المتجر</title></svg>);
   const ZapIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /><title>أيقونة سريعة</title></svg>);
   const SendInputIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /><title>أيقونة إرسال</title></svg>);
@@ -318,11 +346,9 @@
    const [placeholder, setPlaceholder] = useState('اكتب رسالتك...');
    const [isFirebaseReady, setIsFirebaseReady] = useState(false);
    const [userId, setUserId] = useState(null);
-
-   // قراءة المتغيرات من Window بعد التهيئة
    const isFirebaseAvailable = typeof window.isFirebaseAvailable !== 'undefined' ? window.isFirebaseAvailable : false;
+   // استخدام window.appId الذي تم تعيينه في <script type="module">
    const firestoreAppId = typeof window.appId !== 'undefined' ? window.appId : 'default-app-id';
-
 
    const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -330,7 +356,7 @@
 
    // 1. منطق المصادقة والتحميل (يدعم Firestore كأولوية، ثم SessionStorage)
    useEffect(() => {
-    if (!isFirebaseAvailable || !window.db || !window.auth) {
+    if (!isFirebaseAvailable) {
      // **الخطة البديلة:** تحميل من sessionStorage
      const loaded = loadMessagesFromSession();
      setMessages(loaded);
@@ -348,10 +374,9 @@
       const currentUserId = user.uid || crypto.randomUUID();
       setUserId(currentUserId);
 
-      // استخدام firestoreAppId لضمان المسار الصحيح 
-      // Path: /artifacts/{giftsbot-eslam}/users/{userId}/chat_messages
+      // استخدام firestoreAppId لضمان المسار الصحيح سواء في البيئة المحلية أو Vercel
       const messagesCollectionRef = collection(window.db, `artifacts/${firestoreAppId}/users/${currentUserId}/chat_messages`);
-      // تم إزالة orderBy
+      // ملاحظة: تم إزالة orderBy لتجنب أخطاء الفهرسة (Index Errors) في Firestore، وسيتم الفرز في JS
       const q = query(messagesCollectionRef);
 
       const unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
@@ -390,8 +415,6 @@
        }
       }, (error) => {
        console.error("Error listening to messages:", error);
-       // إذا حدث خطأ في onSnapshot (مثل قواعد الأمان)، نعود للتخزين المؤقت
-       if (!messages.length) handleSendInitialMessage();
        setIsFirebaseReady(true);
       });
 
@@ -401,8 +424,7 @@
       setUserId(null);
       setMessages([]);
       setIsFirebaseReady(true);
-      // يجب أن تتم المصادقة أولاً، ثم يتم التحميل، لكن هنا نطلق رسالة الترحيب فقط إذا لم يكن هناك رسائل
-      if (!messages.length) handleSendInitialMessage();
+      handleSendInitialMessage();
      }
     });
 
@@ -450,7 +472,6 @@
 
 
    const handleSendInitialMessage = useCallback(async () => {
-    // يتم استدعاء هذه الدالة فقط إذا لم يتم تحميل أي رسائل
     if (messages.length > 0) return;
 
     // رسالة المستخدم الافتراضية للترحيب
