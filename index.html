@@ -14,12 +14,13 @@
 
  <!-- Firebase SDKs for Firestore and Auth -->
  <script type="module">
+  // استيراد جميع الدوال المطلوبة
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
   import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+  // تم استيراد الدوال المطلوبة في كود React
   import { getFirestore, doc, setDoc, onSnapshot, collection, query, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-  // === 1. التكوين المباشر لـ Firebase (لأغراض التشخيص) ===
-  // يتم استخدام التكوين المقدم من قبلك مباشرة
+  // === 1. التكوين المباشر لـ Firebase ===
   const firebaseConfig = {
    apiKey: "AIzaSyDh2miXzTIza7u85ygQMgPnvGnjNa13WAM",
    authDomain: "giftsbot-eslam.firebaseapp.com",
@@ -29,7 +30,6 @@
    appId: "1:61353800748:web:6a4bc3ce09f5bb4db70d89"
   };
 
-  // استخدام projectId كـ appId لمسار Firestore
   window.appId = firebaseConfig.projectId;
 
   // === 2. تهيئة Firebase ===
@@ -39,6 +39,14 @@
    window.auth = getAuth(app);
 
    window.isFirebaseAvailable = true; // علامة لـ React
+
+   // 📢 الحل: تمرير دوال Firestore بشكل صريح إلى الكائن window
+   // هذا يسمح لكود React (في وسم Babel) بالوصول إليها.
+   window.collection = collection;
+   window.doc = doc;
+   window.setDoc = setDoc;
+   window.onSnapshot = onSnapshot;
+   window.query = query;
 
    // تسجيل الدخول المجهول لتحديد userId
    onAuthStateChanged(window.auth, async (user) => {
@@ -55,7 +63,7 @@
    console.log("Firebase Initialized using Hardcoded Config.");
   } else {
    console.error("Firebase Config is missing or invalid. Using sessionStorage for message persistence.");
-   window.isFirebaseAvailable = false; // علامة لـ React
+   window.isFirebaseAvailable = false;
   }
  </script>
 
@@ -323,6 +331,9 @@
    const isFirebaseAvailable = typeof window.isFirebaseAvailable !== 'undefined' ? window.isFirebaseAvailable : false;
    const firestoreAppId = typeof window.appId !== 'undefined' ? window.appId : 'default-app-id';
 
+   // الوصول إلى دوال Firestore من الكائن العام
+   const { collection, doc, setDoc, onSnapshot, query } = window;
+
 
    const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -348,10 +359,8 @@
       const currentUserId = user.uid || crypto.randomUUID();
       setUserId(currentUserId);
 
-      // استخدام firestoreAppId لضمان المسار الصحيح 
-      // Path: /artifacts/{giftsbot-eslam}/users/{userId}/chat_messages
+      // استخدام دوال Firestore المعينة عالمياً (collection, query)
       const messagesCollectionRef = collection(window.db, `artifacts/${firestoreAppId}/users/${currentUserId}/chat_messages`);
-      // تم إزالة orderBy
       const q = query(messagesCollectionRef);
 
       const unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
@@ -378,7 +387,7 @@
         };
        });
 
-       // فرز الرسائل محليًا بعد إزالة orderBy من الاستعلام
+       // فرز الرسائل محليًا
        loadedMessages.sort((a, b) => a.timestamp - b.timestamp);
 
        setMessages(loadedMessages);
@@ -390,7 +399,6 @@
        }
       }, (error) => {
        console.error("Error listening to messages:", error);
-       // إذا حدث خطأ في onSnapshot (مثل قواعد الأمان)، نعود للتخزين المؤقت
        if (!messages.length) handleSendInitialMessage();
        setIsFirebaseReady(true);
       });
@@ -401,7 +409,6 @@
       setUserId(null);
       setMessages([]);
       setIsFirebaseReady(true);
-      // يجب أن تتم المصادقة أولاً، ثم يتم التحميل، لكن هنا نطلق رسالة الترحيب فقط إذا لم يكن هناك رسائل
       if (!messages.length) handleSendInitialMessage();
      }
     });
@@ -415,6 +422,7 @@
     // 1. منطق الحفظ إلى Firestore
     if (isFirebaseAvailable && window.db && userId) {
      try {
+      // استخدام دوال Firestore المعينة عالمياً (collection, doc, setDoc)
       const messagesCollectionRef = collection(window.db, `artifacts/${firestoreAppId}/users/${userId}/chat_messages`);
 
       const payloadToSave = {
