@@ -18,26 +18,37 @@
   import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
   import { getFirestore, doc, setDoc, onSnapshot, collection, query, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-  // === دالة تهيئة Firebase من Vercel Environment Variables ===
+  // === دالة تهيئة Firebase من Vercel Custom Headers ===
   async function initializeFirebase() {
    window.isFirebaseAvailable = false;
+   let apiKey = null;
+   let projectId = null;
+   let appId = null;
 
-   // 🛑🛑🛑 قراءة القيم من متغيرات البيئة المتاحة عالمياً 🛑🛑🛑
-   // نستخدم متغيرات البيئة المعرفة في لوحة تحكم Vercel
-   const apiKey = process.env.VITE_FIREBASE_API_KEY;
-   const projectId = process.env.VITE_FIREBASE_PROJECT_ID;
-   const appId = process.env.VITE_FIREBASE_APP_ID;
+   try {
+    // 1. إرسال طلب HEAD لقراءة الـ Headers التي حقنتها Vercel
+    const response = await fetch(window.location.href, { method: 'HEAD' });
 
-   // 📢 طباعة القيم المقروءة للتصحيح 📢
-   console.log("--- Vercel Environment Variable Debug ---");
-   console.log("API Key Read:", apiKey ? (apiKey.substring(0, 5) + '...') : 'Missing');
-   console.log("Project ID Read:", projectId || 'Missing');
-   console.log("App ID Read:", appId ? (appId.substring(0, 5) + '...') : 'Missing');
-   console.log("-----------------------------------------");
+    apiKey = response.headers.get('x-firebase-api-key');
+    projectId = response.headers.get('x-firebase-project-id');
+    appId = response.headers.get('x-firebase-app-id');
 
+    // 📢 طباعة القيم المقروءة للتصحيح 📢
+    console.log("--- Vercel Header Debug ---");
+    console.log("API Key Read:", apiKey ? (apiKey.substring(0, 5) + '...') : 'Missing');
+    console.log("Project ID Read:", projectId || 'Missing');
+    console.log("App ID Read:", appId ? (appId.substring(0, 5) + '...') : 'Missing');
+    console.log("---------------------------");
+
+   } catch (error) {
+    console.error("Failed to read headers from Vercel:", error);
+    // إذا فشل قراءة الـ Headers، نعتمد على التخزين المؤقت
+    window.isFirebaseAvailable = false;
+    return;
+   }
 
    if (!projectId || !apiKey || !appId) {
-    console.error("Vercel Environment variables missing or empty. Cannot initialize Firebase.");
+    console.error("Firebase Headers are missing or empty. Cannot initialize Firebase. Check vercel.json and environment variables.");
     window.isFirebaseAvailable = false;
     return;
    }
@@ -74,13 +85,13 @@
        await signInAnonymously(window.auth);
        console.log("Firebase Sign-In Succeeded.");
       } catch (error) {
-       console.error("Firebase Sign-In Failed:", error);
+       console.error("Firebase Sign-In Failed: (Check API Key value in Vercel)", error);
        window.isFirebaseAvailable = false;
       }
      }
     });
     setLogLevel('Debug');
-    console.log("Firebase Initialized using Vercel Environment Variables.");
+    console.log("Firebase Initialized successfully using Vercel Headers.");
    } catch (error) {
     console.error("Error during Firebase initialization (API Key or Config issue):", error);
     window.isFirebaseAvailable = false;
@@ -366,87 +377,101 @@
    // 1. منطق المصادقة والتحميل (يدعم Firestore كأولوية، ثم SessionStorage)
    useEffect(() => {
     // الانتظار حتى يتم تهيئة Firebase (سواء نجح أم فشل)
-    if (typeof window.isFirebaseAvailable === 'undefined' || !isFirebaseReady) {
-     // Firebase not initialized yet, wait for initializeFirebase to complete
+    if (typeof window.isFirebaseAvailable === 'undefined' || isFirebaseReady) {
      return;
     }
 
-    if (!isFirebaseAvailable || !window.db || !window.auth) {
-     // **الخطة البديلة:** تحميل من sessionStorage
-     const loaded = loadMessagesFromSession();
-     setMessages(loaded);
-     setIsFirebaseReady(true);
-     if (loaded.length === 0) {
-      handleSendInitialMessage();
+    // نضع هذا المؤثر للتشغيل بعد اكتمال تهيئة Firebase في السكربت العادي
+    const checkInitialization = () => {
+     if (window.isFirebaseAvailable !== undefined) {
+      // Firebase has been initialized (either successfully or not)
+      performDataLoading();
+     } else {
+      // Check again shortly
+      setTimeout(checkInitialization, 100);
      }
-     setTimeout(scrollToBottom, 50);
-     return;
-    }
+    };
 
-    // **الأولوية:** الاتصال بـ Firestore
-    const unsubscribeAuth = window.auth.onAuthStateChanged(user => {
-     if (user) {
-      const currentUserId = user.uid || crypto.randomUUID();
-      setUserId(currentUserId);
+    const performDataLoading = () => {
+     if (!isFirebaseAvailable || !window.db || !window.auth) {
+      // **الخطة البديلة:** تحميل من sessionStorage
+      const loaded = loadMessagesFromSession();
+      setMessages(loaded);
+      setIsFirebaseReady(true);
+      if (loaded.length === 0) {
+       handleSendInitialMessage();
+      }
+      setTimeout(scrollToBottom, 50);
+      return;
+     }
 
-      // استخدام دوال Firestore المعينة عالمياً (collection, query)
-      const messagesCollectionRef = collection(window.db, `artifacts/${firestoreAppId}/users/${currentUserId}/chat_messages`);
-      const q = query(messagesCollectionRef);
+     // **الأولوية:** الاتصال بـ Firestore
+     const unsubscribeAuth = window.auth.onAuthStateChanged(user => {
+      if (user) {
+       const currentUserId = user.uid || crypto.randomUUID();
+       setUserId(currentUserId);
 
-      const unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
-       let loadedMessages = snapshot.docs.map(doc => {
-        const data = doc.data();
-        const timestampValue = data.timestamp ? (data.timestamp.seconds * 1000) : Date.now();
+       // استخدام دوال Firestore المعينة عالمياً (collection, query)
+       const messagesCollectionRef = collection(window.db, `artifacts/${firestoreAppId}/users/${currentUserId}/chat_messages`);
+       const q = query(messagesCollectionRef);
 
-        let richContent = {};
-        try {
-         if (data.product) richContent.product = JSON.parse(data.product);
-         if (data.customButton) richContent.customButton = JSON.parse(data.customButton);
-        } catch (e) {
-         console.error("Error parsing rich content JSON:", e);
+       const unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
+        let loadedMessages = snapshot.docs.map(doc => {
+         const data = doc.data();
+         const timestampValue = data.timestamp ? (data.timestamp.seconds * 1000) : Date.now();
+
+         let richContent = {};
+         try {
+          if (data.product) richContent.product = JSON.parse(data.product);
+          if (data.customButton) richContent.customButton = JSON.parse(data.customButton);
+         } catch (e) {
+          console.error("Error parsing rich content JSON:", e);
+         }
+
+         return {
+          id: doc.id,
+          text: data.text,
+          sender: data.sender,
+          type: data.type || 'TEXT',
+          quickReplies: data.quickReplies || [],
+          ...richContent,
+          timestamp: timestampValue
+         };
+        });
+
+        // فرز الرسائل محليًا
+        loadedMessages.sort((a, b) => a.timestamp - b.timestamp);
+
+        setMessages(loadedMessages);
+        setIsFirebaseReady(true);
+        setTimeout(scrollToBottom, 50);
+
+        if (loadedMessages.length === 0) {
+         handleSendInitialMessage();
         }
-
-        return {
-         id: doc.id,
-         text: data.text,
-         sender: data.sender,
-         type: data.type || 'TEXT',
-         quickReplies: data.quickReplies || [],
-         ...richContent,
-         timestamp: timestampValue
-        };
+       }, (error) => {
+        console.error("Error listening to messages:", error);
+        // إذا حدث خطأ في onSnapshot (مثل قواعد الأمان)، نعود للتخزين المؤقت
+        if (!messages.length) handleSendInitialMessage();
+        setIsFirebaseReady(true);
        });
 
-       // فرز الرسائل محليًا
-       loadedMessages.sort((a, b) => a.timestamp - b.timestamp);
-
-       setMessages(loadedMessages);
+       return () => unsubscribeSnapshot();
+      } else {
+       // حالة عدم المصادقة
+       setUserId(null);
+       setMessages([]);
        setIsFirebaseReady(true);
-       setTimeout(scrollToBottom, 50);
-
-       if (loadedMessages.length === 0) {
-        handleSendInitialMessage();
-       }
-      }, (error) => {
-       console.error("Error listening to messages:", error);
-       // إذا حدث خطأ في onSnapshot (مثل قواعد الأمان)، نعود للتخزين المؤقت
+       // يجب أن تتم المصادقة أولاً، ثم يتم التحميل، لكن هنا نطلق رسالة الترحيب فقط إذا لم يكن هناك رسائل
        if (!messages.length) handleSendInitialMessage();
-       setIsFirebaseReady(true);
-      });
+      }
+     });
 
-      return () => unsubscribeSnapshot();
-     } else {
-      // حالة عدم المصادقة
-      setUserId(null);
-      setMessages([]);
-      setIsFirebaseReady(true);
-      // يجب أن تتم المصادقة أولاً، ثم يتم التحميل، لكن هنا نطلق رسالة الترحيب فقط إذا لم يكن هناك رسائل
-      if (!messages.length) handleSendInitialMessage();
-     }
-    });
+     return () => unsubscribeAuth();
+    };
 
-    return () => unsubscribeAuth();
-   }, [isFirebaseAvailable, firestoreAppId]);
+    checkInitialization();
+   }, [isFirebaseReady, isFirebaseAvailable, firestoreAppId]);
 
 
    // دالة حفظ الرسالة (تستخدم Firestore إذا متاح، وإلا sessionStorage)
