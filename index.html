@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <title>Gifts Bot Chat UI</title>
+ <!-- Tailwind CSS CDN for styling -->
+ <script src="https://cdn.tailwindcss.com"></script>
+ <!-- React and Babel CDNs -->
+ <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+ <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+ <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+ <!-- Lucide Icons -->
+ <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+ <style>
+  /* Custom Font */
+  @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
+
+  body {
+   font-family: 'Cairo', sans-serif;
+   background-color: #f3f4f6;
+  }
+ </style>
+</head>
+
+<body>
+
+ <div id="root">
+  <!-- React component will be rendered here -->
+ </div>
+
+ <!-- 
+    =====================================================================================
+    Start of React/JSX Code
+    =====================================================================================
+    We use type="text/babel" to allow the browser to process JSX directly.
+    The FULFILLMENT_ENDPOINT_URL is correctly set.
+    -->
+ <script type="text/babel">
+  // استيراد المكونات المطلوبة من مكتبة Lucide
+  const { Send, ShoppingBag, DollarSign, Zap, AlertTriangle } = lucide;
+
+  // 🛑 رابط الـ Webhook الفعلي (تم وضعه هنا ليعمل التطبيق)
+  const FULFILLMENT_ENDPOINT_URL = 'https://gifts-bot-webhook.vercel.app/webhook';
+
+  // =================================================================
+  // المكون الفرعي: بطاقة المنتج Rich Content
+  // =================================================================
+  const ProductCard = ({ product }) => {
+   const defaultImageUrl = "https://placehold.co/400x200/4F46E5/FFFFFF?text=Product+Image";
+   const whatsappLink = `https://wa.me/201013080898?text=أرغب%20في%20شراء%20${product.name}`;
+
+   return (
+    <div className="bg-white rounded-lg shadow-lg max-w-sm overflow-hidden border border-indigo-100 mx-auto">
+     {/* الصورة - تظهر بوضوح وبحجم مثالي */}
+     <div className="h-40 overflow-hidden bg-gray-100">
+      <img
+       src={product.imageUrl || defaultImageUrl}
+       alt={product.name}
+       className="w-full h-full object-cover transition-transform duration-300 hover:scale-[1.05]"
+       onError={(e) => {
+        e.target.onerror = null;
+        e.target.src = defaultImageUrl;
+       }}
+      />
+     </div>
+
+     <div className="p-4 flex flex-col items-end text-right" dir="rtl">
+      <h3 className="text-xl font-bold text-gray-800 mb-2">{product.name}</h3>
+      <div className="space-y-1 text-sm text-gray-600 w-full">
+       <p className="flex justify-end items-center">
+        <DollarSign size={16} className="ml-2 text-green-600 flex-shrink-0" />
+        <span className="font-semibold text-green-700">{product.price} جنيه</span>
+        :السعر
+       </p>
+       <p className="text-xs text-gray-500 line-clamp-2">
+        {product.description || "الوصف غير متوفر حاليًا."}
+       </p>
+      </div>
+
+      <a
+       href={whatsappLink}
+       target="_blank"
+       rel="noopener noreferrer"
+       className="mt-4 w-full flex justify-center items-center px-4 py-2 bg-green-500 text-white font-semibold rounded-md shadow-md hover:bg-green-600 transition duration-150 transform hover:scale-[1.01]"
+      >
+       <Send size={18} className="ml-2" />
+       اطلب عبر الواتساب الآن
+      </a>
+     </div>
+    </div>
+   );
+  };
+
+
+  // =================================================================
+  // دالة إرسال الاستعلام للـ Fulfillment API
+  // =================================================================
+  const fetchFulfillmentResponse = async (query) => {
+   // استخدم هذه الدالة لتحويل محتويات Response من Webhook إلى صيغة يفهمها React
+   const parseFulfillmentForReact = (text) => {
+    // 🛑 هذا المنطق هو محاولة لاستخلاص بطاقة المنتج من الرد النصي العادي
+    // يجب تعديل الـ Fulfillment لإرسال JSON مخصص لضمان الدقة
+    if (text && text.includes("محفظة") && text.includes("جنيه")) {
+     const priceMatch = text.match(/السعر: \*?(\d+)\*? جنيه/);
+     // محاكاة استخراج الوصف والصورة
+     return {
+      type: 'PRODUCT_CARD',
+      data: {
+       name: "محفظة جلد رجالية فاخرة",
+       price: priceMatch ? priceMatch[1] : 'غير معروف',
+       description: 'محفظة يدوية الصنع من الجلد الطبيعي بتصميم نحيف وعصري.',
+       // صورة عالية الدقة لتجربة أفضل
+       imageUrl: 'https://images.unsplash.com/photo-1628005322971-470a0c13d717?q=80&w=600&h=400&auto=format&fit=crop',
+      }
+     };
+    }
+
+    // الرد النصي العادي
+    return {
+     type: 'TEXT',
+     data: {
+      text: text,
+      quickReplies: [] // يجب تعديل الـ Fulfillment لإرسال الأزرار السريعة هنا
+     }
+    };
+   };
+
+   try {
+    const response = await fetch(FULFILLMENT_ENDPOINT_URL, {
+     method: 'POST',
+     headers: {
+      'Content-Type': 'application/json',
+     },
+     body: JSON.stringify({
+      // هيكل طلب Dialogflow
+      session: 'projects/gifts-bot/agent/custom-session-id',
+      queryInput: {
+       text: {
+        text: query,
+        languageCode: 'ar-EG',
+       },
+      },
+      // إشارة إلى الـ Fulfillment بأننا نستخدم واجهة مخصصة
+      customPayload: {
+       platform: 'CUSTOM_REACT_UI'
+      }
+     }),
+    });
+
+    if (!response.ok) {
+     throw new Error(`خطأ ${response.status}: فشل الاتصال بالخادم. تحقق من رابط Webhook وحالته.`);
+    }
+
+    const data = await response.json();
+    const fulfillmentText = data.fulfillmentText || "لم يتم الحصول على رد نصي.";
+
+    return parseFulfillmentForReact(fulfillmentText);
+
+   } catch (error) {
+    console.error("API Call FAILED:", error);
+    return {
+     type: 'TEXT',
+     data: {
+      text: `🛑 فشل الاتصال. تأكد من أن Webhook يعمل وأن الرابط صحيح. الرسالة: ${error.message}`
+     }
+    };
+   }
+  };
+
+
+  // =================================================================
+  // المكون الرئيسي: واجهة الدردشة
+  // =================================================================
+  const App = () => {
+   const [messages, setMessages] = React.useState([]);
+   const [input, setInput] = React.useState('');
+   const [isTyping, setIsTyping] = React.useState(false);
+   const [placeholder, setPlaceholder] = React.useState('اكتب رسالتك...');
+
+   const handleSend = React.useCallback(async (query) => {
+    const userQuery = query || input;
+    if (userQuery.trim() === '') return;
+
+    const userMessage = { id: Date.now(), text: userQuery, sender: 'user', type: 'TEXT', data: { text: userQuery } };
+    setMessages((prev) => [...prev, userMessage]);
+    setInput('');
+    setIsTyping(true);
+    setPlaceholder('الروبوت يكتب...');
+
+    // استدعاء API الفعلي
+    const fulfillmentResponse = await fetchFulfillmentResponse(userQuery);
+
+    setIsTyping(false);
+    setPlaceholder('اكتب رسالتك...');
+
+    const botMessage = {
+     id: Date.now() + 1,
+     sender: 'bot',
+     type: fulfillmentResponse.type,
+     data: fulfillmentResponse.data
+    };
+
+    setMessages((prev) => [...prev, botMessage]);
+
+   }, [input]);
+
+   const handleQuickReply = (text) => {
+    handleSend(text);
+   };
+
+   const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+     handleSend();
+    }
+   };
+
+   // رسالة الترحيب عند التحميل
+   React.useEffect(() => {
+    setMessages([{
+     id: 0,
+     sender: 'bot',
+     type: 'TEXT',
+     data: {
+      text: 'أهلاً بك! هذه واجهة محادثة جديدة. جرب أن تسأل: سعر محفظة جلد رجالية',
+      quickReplies: ['عرض الأقسام', 'أفضل التوصيات']
+     }
+    }]);
+   }, []);
+
+   // لتمرير لأسفل عند إضافة رسالة جديدة
+   React.useEffect(() => {
+    const chatWindow = document.getElementById('chat-messages');
+    if (chatWindow) {
+     chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
+   }, [messages]);
+
+   const renderMessageContent = (message) => {
+    if (message.type === 'PRODUCT_CARD') {
+     return <ProductCard product={message.data} />;
+    }
+    return (
+     <p className="text-gray-700 whitespace-pre-wrap">{message.data.text || message.text}</p>
+    );
+   };
+
+   const lastBotMessage = messages.slice().reverse().find(m => m.sender === 'bot');
+   const quickReplies = lastBotMessage?.data?.quickReplies || [];
+
+
+   return (
+    <div dir="rtl" className="flex justify-center items-center min-h-screen bg-gray-50 p-4 font-sans">
+     <div className="w-full max-w-lg h-[90vh] flex flex-col bg-white rounded-xl shadow-2xl overflow-hidden border border-indigo-200">
+
+      {/* رأس المحادثة */}
+      <header className="flex items-center p-4 bg-indigo-600 text-white shadow-md">
+       <ShoppingBag size={24} className="ml-3" />
+       <h1 className="text-lg font-bold">بوت متجر الهدايا (React Custom UI)</h1>
+      </header>
+
+      {/* نافذة الرسائل */}
+      <div id="chat-messages" className="flex-1 p-4 space-y-4 overflow-y-auto bg-gray-100">
+       {messages.map((message) => (
+        <div
+         key={message.id}
+         className={`flex ${message.sender === 'user' ? 'justify-start' : 'justify-end'}`}
+        >
+         <div className={`max-w-[75%] p-3 rounded-xl shadow-sm ${message.sender === 'user'
+           ? 'bg-indigo-500 text-white rounded-tr-none'
+           : (message.type === 'PRODUCT_CARD' ? 'p-0 bg-transparent' : 'bg-white text-gray-800 rounded-tl-none border border-gray-200')
+          }`}>
+          {renderMessageContent(message)}
+         </div>
+        </div>
+       ))}
+
+       {/* مؤشر الكتابة */}
+       {isTyping && (
+        <div className="flex justify-end">
+         <div className="max-w-[75%] p-3 rounded-xl bg-white text-gray-800 rounded-tl-none border border-gray-200">
+          <div className="typing-indicator flex space-x-1 items-center">
+           <span className="dot dot-1 bg-indigo-500"></span>
+           <span className="dot dot-2 bg-indigo-500"></span>
+           <span className="dot dot-3 bg-indigo-500"></span>
+          </div>
+         </div>
+        </div>
+       )}
+      </div>
+
+      {/* الأزرار السريعة */}
+      {quickReplies.length > 0 && (
+       <div className="p-3 bg-white border-t border-gray-200 flex flex-wrap justify-end gap-2">
+        {quickReplies.map((reply, index) => (
+         <button
+          key={index}
+          onClick={() => handleQuickReply(reply)}
+          className="px-3 py-1 text-sm bg-indigo-50 border border-indigo-300 text-indigo-700 rounded-full hover:bg-indigo-100 transition duration-150 shadow-sm flex items-center"
+         >
+          <Zap size={14} className="ml-1 text-yellow-500" />
+          {reply}
+         </button>
+        ))}
+       </div>
+      )}
+
+
+      {/* شريط الإدخال */}
+      <div className="p-4 bg-white border-t border-gray-200">
+       <div className="flex space-x-2" dir="ltr">
+        <input
+         type="text"
+         className="flex-1 w-full border border-gray-300 rounded-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-right text-gray-700"
+         value={input}
+         onChange={(e) => setInput(e.target.value)}
+         onKeyDown={handleKeyDown}
+         placeholder={placeholder}
+         dir="rtl"
+         disabled={isTyping}
+        />
+        <button
+         onClick={() => handleSend()}
+         className={`p-3 rounded-lg text-white transition duration-150 ${input.trim() && !isTyping ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-gray-400 cursor-not-allowed'
+          }`}
+         disabled={!input.trim() || isTyping}
+        >
+         <Send size={24} className="transform -scale-x-100" />
+        </button>
+       </div>
+      </div>
+
+     </div>
+     {/* CSS لمؤشر الكتابة */}
+     <style>{`
+                        .typing-indicator .dot {
+                            width: 8px;
+                            height: 8px;
+                            border-radius: 50%;
+                            background-color: #333;
+                            opacity: 0;
+                            animation: bounce 1.4s infinite ease-in-out;
+                        }
+                        .typing-indicator .dot-1 { animation-delay: -0.32s; }
+                        .typing-indicator .dot-2 { animation-delay: -0.16s; }
+                        .typing-indicator .dot-3 { animation-delay: 0s; }
+                        @keyframes bounce {
+                            0%, 80%, 100% { transform: scale(0); opacity: 0; }
+                            40% { transform: scale(1); opacity: 1; }
+                        }
+                    `}</style>
+    </div>
+   );
+  };
+
+  // Render the App component
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+ </script>
+</body>
+
+</html>
