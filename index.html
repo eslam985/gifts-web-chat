@@ -44,6 +44,12 @@
    background: #f3f4f6;
   }
 
+  /* Fix for typing indicator */
+  .typing-indicator {
+   display: flex;
+   align-items: center;
+  }
+
   .typing-indicator .dot {
    width: 8px;
    height: 8px;
@@ -51,6 +57,7 @@
    background-color: #333;
    opacity: 0;
    animation: bounce 1.4s infinite ease-in-out;
+   margin: 0 2px;
   }
 
   .typing-indicator .dot-1 {
@@ -86,34 +93,22 @@
 
  <div id="root"></div>
 
- <!-- 🛑 Firebase Module Imports (Mandatory for persistent state) 🛑 -->
+ <!-- Firebase Module Imports -->
  <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
   import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
   import { getFirestore, collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-  // Attach Firebase functions to the window object for use by the Babel script
   window.firebase = {
-   initializeApp,
-   getAuth,
-   signInAnonymously,
-   signInWithCustomToken,
-   onAuthStateChanged,
-   getFirestore,
-   collection,
-   query,
-   orderBy,
-   onSnapshot,
-   addDoc,
-   serverTimestamp,
-   limit,
+   initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
+   getFirestore, collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, limit,
   };
  </script>
 
  <script type="text/babel">
   const { useState, useEffect, useRef, useCallback } = React;
 
-  // === SVG Icons (Inline replacements for Lucide) ===
+  // === SVG Icons (Inline replacements) ===
   const Sparkles = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.9 5.8 8.5 2.1c-.4-1.2-2.1-1.2-2.5 0L4.6 5.8" /><path d="M12.7 10.7 17 9.3c1.2-.4 1.2-2.1 0-2.5L12.7 5.8" /><path d="M21 21 16 16" /><path d="M15 21l-3-3" /><path d="m14 21 5-5" /></svg>);
   const Send = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /></svg>);
   const Loader2 = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>);
@@ -126,7 +121,7 @@
   const WEBHOOK_URL = 'https://gifts-bot-webhook.vercel.app/webhook';
   const generateUUID = () => crypto.randomUUID();
 
-  // === FIREBASE INITIALIZATION AND AUTH HOOK ===
+  // === FIREBASE INITIALIZATION AND AUTH HOOK (FIXED) ===
   const useFirebase = () => {
    const [db, setDb] = useState(null);
    const [auth, setAuth] = useState(null);
@@ -135,6 +130,15 @@
 
    useEffect(() => {
     const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore } = window.firebase;
+
+    // 🛑 FIX: Check for essential Firebase config before initializing
+    if (!firebaseConfig || !firebaseConfig.projectId) {
+     console.error("FIREBASE ERROR: Configuration is missing essential data (projectId). Running in non-persistent mode.");
+     // Still set auth ready to allow the UI to load
+     setUserId(generateUUID());
+     setIsAuthReady(true);
+     return;
+    }
 
     try {
      const app = initializeApp(firebaseConfig);
@@ -153,7 +157,7 @@
          await signInAnonymously(authInstance);
         }
        } catch (error) {
-        console.error("Firebase Auth Error:", error);
+        console.error("Firebase Auth Error during sign-in:", error);
        }
       }
       setUserId(authInstance.currentUser?.uid || generateUUID());
@@ -162,7 +166,8 @@
 
      return () => unsubscribe();
     } catch (e) {
-     console.error("Firebase Initialization Failed:", e);
+     console.error("Firebase Initialization Failed (General):", e);
+     setUserId(generateUUID());
      setIsAuthReady(true);
     }
    }, []);
@@ -172,7 +177,6 @@
 
   // === MESSAGE RENDERING COMPONENTS ===
 
-  // 🛑 Quick Replies Component
   const QuickReplies = ({ replies, onQuickReplyClick }) => {
    if (!replies || replies.length === 0) return null;
 
@@ -209,23 +213,19 @@
    let textContent = message.text;
    let quickRepliesData = null;
 
-   // 🛑 NEW LOGIC: Parse Rich Content from fulfillmentMessages
    if (isBot && message.response?.queryResult?.fulfillmentMessages) {
 
-    // 1. Find Quick Replies
     const quickRepliesMessage = message.response.queryResult.fulfillmentMessages.find(m => m.quickReplies && m.quickReplies.quickReplies && m.quickReplies.quickReplies.length > 0);
     if (quickRepliesMessage) {
      quickRepliesData = quickRepliesMessage.quickReplies;
     }
 
-    // 2. Find Text Content
     const textMessage = message.response.queryResult.fulfillmentMessages.find(m => m.text && m.text.text && m.text.text.length > 0);
     if (textMessage) {
      textContent = textMessage.text.text[0];
     }
    }
 
-   // Use the main fulfillmentText as a fallback
    textContent = textContent || message.response?.queryResult?.fulfillmentText || "تعذر الحصول على الرد.";
 
 
@@ -236,7 +236,6 @@
        <div className="text-right whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: textContent }}></div>
       </div>
 
-      {/* 🛑 Render Quick Replies if found */}
       {isBot && quickRepliesData && (
        <QuickReplies replies={quickRepliesData} onQuickReplyClick={onQuickReplyClick} />
       )}
@@ -248,7 +247,7 @@
   // === MAIN CHAT APPLICATION ===
 
   const App = () => {
-   const { db, userId, isAuthReady } = useFirebase();
+   const { db, userId, isAuthReady, auth } = useFirebase();
    const [input, setInput] = useState('');
    const [messages, setMessages] = useState([]);
    const [isLoading, setIsLoading] = useState(false);
@@ -261,7 +260,6 @@
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
    };
 
-   // API Call Function: Sends message to the Vercel Webhook
    const sendApiRequest = useCallback(async (queryText) => {
     setIsLoading(true);
 
@@ -304,13 +302,12 @@
     try {
      const botResponse = await executeFetch(0);
 
-     // Add bot response to Firestore
      if (db && userId) {
       const messagesCol = collection(db, `artifacts/${appId}/users/${userId}/messages`);
       await addDoc(messagesCol, {
        role: 'bot',
-       text: botResponse.queryResult?.fulfillmentText || 'لا يوجد نص', // Fallback text
-       response: botResponse, // Store full response for rich content
+       text: botResponse.queryResult?.fulfillmentText || 'لا يوجد نص',
+       response: botResponse,
        timestamp: serverTimestamp(),
        sessionId: sessionId,
       });
@@ -318,7 +315,6 @@
 
     } catch (error) {
      console.error("API Call FAILED:", error);
-     // Add error message to the chat display
      if (db && userId) {
       const messagesCol = collection(db, `artifacts/${appId}/users/${userId}/messages`);
       await addDoc(messagesCol, {
@@ -334,14 +330,12 @@
     }
    }, [db, userId, sessionId]);
 
-   // Function to handle sending a message (user input or quick reply click)
    const sendMessage = useCallback(async (queryText) => {
     if (!queryText.trim() || isLoading || !db || !userId) return;
 
     const textToSend = queryText.trim();
-    setInput(''); // Clear input box
+    setInput('');
 
-    // 1. Add user message to Firestore
     const messagesCol = collection(db, `artifacts/${appId}/users/${userId}/messages`);
     await addDoc(messagesCol, {
      role: 'user',
@@ -350,18 +344,16 @@
      sessionId: sessionId,
     });
 
-    // 2. Send API request and handle bot response
     await sendApiRequest(textToSend);
 
    }, [isLoading, db, userId, sendApiRequest, sessionId]);
 
-   // Handle form submit
    const handleSubmit = (e) => {
     e.preventDefault();
     sendMessage(input);
    };
 
-   // Firestore Listener for Real-time Chat History
+   // Firestore Listener
    useEffect(() => {
     if (!isAuthReady || !db || !userId) return;
 
@@ -373,7 +365,7 @@
       id: doc.id,
       ...doc.data(),
       timestamp: doc.data().timestamp?.toDate(),
-     })).filter(msg => msg.sessionId === sessionId && msg.text !== 'Starting session...'); // Filter system messages
+     })).filter(msg => msg.sessionId === sessionId && msg.role !== 'system');
 
      setMessages(loadedMessages);
      scrollToBottom();
@@ -384,7 +376,6 @@
     return () => unsubscribe();
    }, [isAuthReady, db, userId, sessionId]);
 
-   // Scroll on new message
    useEffect(() => {
     scrollToBottom();
    }, [messages]);
@@ -395,12 +386,7 @@
      const sendInitialMessage = async () => {
       // Add a temporary system message to prevent re-triggering this effect
       const messagesCol = collection(db, `artifacts/${appId}/users/${userId}/messages`);
-      await addDoc(messagesCol, {
-       role: 'system',
-       text: 'Starting session...',
-       timestamp: serverTimestamp(),
-       sessionId: sessionId,
-      });
+      await addDoc(messagesCol, { role: 'system', text: 'Starting session...', timestamp: serverTimestamp(), sessionId: sessionId });
       await sendApiRequest('مرحبا');
      };
      sendInitialMessage();
@@ -408,6 +394,7 @@
    }, [isAuthReady, db, userId, messages.length, isLoading, sendApiRequest, sessionId]);
 
 
+   // 🛑 FIX: Conditional rendering to prevent "substring of null" error
    if (!isAuthReady) {
     return (
      <div className="flex items-center justify-center h-screen bg-gray-50 text-gray-700">
@@ -425,8 +412,11 @@
        <Sparkles className="w-6 h-6 text-blue-500 ml-2" />
        <h1 className="text-xl font-bold text-gray-800">أبوت متجر الهدايا (React Custom UI)</h1>
       </div>
+      {/* 🛑 FIX: Ensure userId exists before displaying */}
       <div className="text-sm text-gray-500">
-       <span className="font-mono bg-gray-100 p-1 rounded-md text-xs">{userId.substring(0, 8)}...</span>
+       {userId && (
+        <span className="font-mono bg-gray-100 p-1 rounded-md text-xs">{userId.substring(0, 8)}...</span>
+       )}
       </div>
      </header>
 
@@ -480,6 +470,7 @@
    );
   };
 
+  // 🛑 FIX: Using ReactDOM.render is acceptable here for compatibility with older CDNs
   ReactDOM.render(<App />, document.getElementById('root'));
 
  </script>
