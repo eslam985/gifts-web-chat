@@ -91,11 +91,6 @@
   <!-- React component will be rendered here -->
  </div>
 
-
-
-
-
-
  <script type="text/babel">
   const { useState, useEffect, useCallback, useRef } = React;
 
@@ -115,10 +110,12 @@
   // =================================================================
   const ProductCard = ({ product }) => {
    const defaultImageUrl = "https://placehold.co/400x200/4F46E5/FFFFFF?text=Product+Image";
-   const whatsappLink = `https://wa.me/201013080898?text=أرغب%20في%20شراء%20${product.name}`;
+   // رقم الواتساب ثابت حسب المثال السابق (يجب أن يتم تمريره من الـ payload في بيئة الإنتاج)
+   const whatsappNumber = '201013080898';
+   const whatsappLink = `https://wa.me/${whatsappNumber}?text=أرغب%20في%20شراء%20${product.name}`;
 
    return (
-    <div className="bg-white rounded-lg shadow-lg max-w-sm overflow-hidden border border-indigo-100 mx-auto">
+    <div className="bg-white rounded-xl shadow-lg max-w-sm overflow-hidden border border-indigo-100 mx-auto">
      <div className="h-40 overflow-hidden bg-gray-100">
       <img
        src={product.imageUrl || defaultImageUrl}
@@ -201,21 +198,23 @@
     const fulfillmentMessages = queryResult.fulfillmentMessages || [];
     const textMessage = fulfillmentMessages.find(m => m.text?.text?.length > 0);
     const quickRepliesMessage = fulfillmentMessages.find(m => m.quickReplies?.quickReplies?.length > 0);
-    // 🆕 نبحث عن رسالة تحمل حمولة مخصصة (Custom Payload)
+    // نبحث عن رسالة تحمل حمولة مخصصة (Custom Payload)
     const payloadMessage = fulfillmentMessages.find(m => m.payload);
 
     let botResponse = {
      type: 'TEXT',
      text: queryResult.fulfillmentText || (textMessage?.text?.text?.[0] || "لم يتم الحصول على رد نصي."),
      quickReplies: quickRepliesMessage?.quickReplies?.quickReplies || [],
-     product: null
+     product: null,
+     customButton: null
     };
 
-    // 3. 🛑 منطق الإصلاح: فحص الحمولة المخصصة بدلاً من فحص النص الثابت
+    // 3. منطق فحص الحمولة المخصصة
     const productCardData = payloadMessage?.payload?.productCard;
+    const customButtonData = payloadMessage?.payload?.customButton;
 
     if (productCardData && productCardData.name && productCardData.imageUrl) {
-     // إذا وجدنا بيانات ProductCard منظمة، نستخدمها مباشرة
+     // التعامل مع بطاقة المنتج
      console.log("Product Card Payload detected:", productCardData);
      botResponse.type = 'PRODUCT_CARD';
      botResponse.product = {
@@ -224,9 +223,15 @@
       description: productCardData.description || 'لا يوجد وصف.',
       imageUrl: productCardData.imageUrl,
      };
+    } else if (customButtonData && customButtonData.isCustomButton) {
+     // التعامل مع الزر المخصص (مثل زر الواتساب)
+     console.log("Custom Button Payload detected:", customButtonData);
+     botResponse.type = 'CUSTOM_BUTTON';
+     botResponse.customButton = customButtonData;
+     // يجب أن نحافظ على النص العادي ليكون فوق الزر
+     botResponse.text = queryResult.fulfillmentText || "يرجى التواصل مع الدعم.";
     } else {
-     // ❌ تم إزالة الكود القديم الثابت الذي كان يختبر النص ("محفظة" و "جنيه")
-     console.log("No specific Product Card payload found.");
+     console.log("No specific rich content payload found.");
     }
 
     return botResponse;
@@ -279,7 +284,8 @@
      type: fulfillmentResponse.type,
      text: fulfillmentResponse.text,
      quickReplies: fulfillmentResponse.quickReplies,
-     product: fulfillmentResponse.product
+     product: fulfillmentResponse.product,
+     customButton: fulfillmentResponse.customButton
     };
 
     setMessages((prev) => [...prev, botMessage]);
@@ -309,7 +315,8 @@
       type: fulfillmentResponse.type,
       text: fulfillmentResponse.text,
       quickReplies: fulfillmentResponse.quickReplies.length > 0 ? fulfillmentResponse.quickReplies : ['عرض الأقسام', 'أفضل التوصيات'],
-      product: fulfillmentResponse.product
+      product: fulfillmentResponse.product,
+      customButton: fulfillmentResponse.customButton
      };
      setMessages([initialBotMessage]);
      setTimeout(scrollToBottom, 100);
@@ -325,8 +332,40 @@
 
    const renderMessageContent = (message) => {
     if (message.type === 'PRODUCT_CARD') {
+     // للتأكد من أن بطاقة المنتج تظهر داخل حدود الفقاعة
      return <ProductCard product={message.product} />;
     }
+
+    // منطق عرض الزر المخصص
+    if (message.type === 'CUSTOM_BUTTON' && message.customButton) {
+     // رقم الواتساب ثابت حسب المثال السابق (يجب أن يتم تمريره من الـ payload في بيئة الإنتاج)
+     const whatsappNumber = '201013080898';
+     // تأكد من أن initialText محدد لتجنب خطأ التشفير
+     const initialText = message.customButton.initialText || "السلام عليكم، أرغب في التواصل بخصوص استفسار إداري.";
+     const whatsappLink = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(initialText)}`;
+
+     // استخدام div بدلاً من p للنص العادي لتجنب مشاكل التنسيق مع الزر
+     return (
+      <div className="flex flex-col items-end w-full space-y-3 p-3 bg-white rounded-xl rounded-tl-none border border-gray-200">
+       {/* النص العادي أولا */}
+       <p className="text-gray-700 whitespace-pre-wrap w-full text-right leading-relaxed border-b border-gray-100 pb-2 mb-2">
+        {message.text || "يرجى التواصل مع صاحب المتجر."}
+       </p>
+       {/* الزر الأخضر المخصص */}
+       <a
+        href={whatsappLink}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`w-full flex justify-center items-center px-4 py-2 ${message.customButton.colorClass || 'bg-green-600'} text-white font-semibold rounded-md shadow-lg hover:bg-green-700 transition duration-150 transform hover:scale-[1.01]`}
+       >
+        <WhatsAppSendIcon className="ml-2" />
+        {message.customButton.buttonLabel || 'تواصل الآن'}
+       </a>
+      </div>
+     );
+    }
+
+    // الرد النصي العادي
     const textContent = message.text || "لم يتم الحصول على رد نصي.";
     return (
      <p className="text-gray-700 whitespace-pre-wrap">{textContent}</p>
@@ -353,10 +392,17 @@
          key={message.id}
          className={`flex ${message.sender === 'user' ? 'justify-start' : 'justify-end'}`}
         >
-         <div className={`max-w-[75%] p-3 rounded-xl shadow-sm ${message.sender === 'user'
-          ? 'bg-indigo-500 text-white rounded-tr-none'
-          : (message.type === 'PRODUCT_CARD' ? 'p-0 bg-transparent' : 'bg-white text-gray-800 rounded-tl-none border border-gray-200')
-          }`}
+         {/* ملاحظة: بالنسبة لـ PRODUCT_CARD و CUSTOM_BUTTON، نترك الـ div الخارجي (الذي يحتوي على message.sender) بدون خلفية و padding،
+                                        لأن محتوى البطاقة أو الزر يأتي بتنسيقه الخاص (p-0 bg-transparent). 
+                                    */}
+         <div className={`max-w-[75%] rounded-xl shadow-sm ${message.sender === 'user'
+          ? 'p-3 bg-indigo-600 text-white rounded-tr-none' // رسالة المستخدم
+          : (message.type === 'PRODUCT_CARD'
+           ? 'p-0 bg-transparent' // حالة البطاقة (المحتوى يحدد تنسيقه)
+           : (message.type === 'CUSTOM_BUTTON'
+            ? 'p-0 bg-transparent' // حالة الزر المخصص (المحتوى يحدد تنسيقه)
+            : 'p-3 bg-white text-gray-800 rounded-tl-none border border-gray-200') // النص العادي
+          )}`}
          >
           {renderMessageContent(message)}
          </div>
@@ -426,11 +472,6 @@
 
   ReactDOM.createRoot(document.getElementById('root')).render(<App />);
  </script>
-
-
-
-
-
 </body>
 
 </html>
