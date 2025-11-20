@@ -18,12 +18,22 @@
   import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
   import { getFirestore, doc, setDoc, onSnapshot, collection, query, orderBy, limit, deleteDoc, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-  // يتم توفير هذه المتغيرات بشكل تلقائي في بيئة التنفيذ
+  // === معالجة متغيرات البيئة بدقة ===
   const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-  const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
   const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-  if (Object.keys(firebaseConfig).length > 0) {
+  let firebaseConfig = null;
+  // التحقق من وجود القيمة ومن أنها ليست فارغة (سلسلة نصية)
+  if (typeof __firebase_config !== 'undefined' && __firebase_config && __firebase_config.trim() !== '') {
+   try {
+    firebaseConfig = JSON.parse(__firebase_config);
+   } catch (e) {
+    console.error("Error parsing __firebase_config:", e);
+    // يبقى firebaseConfig على null
+   }
+  }
+
+  if (firebaseConfig) {
    const app = initializeApp(firebaseConfig);
    window.db = getFirestore(app);
    window.auth = getAuth(app);
@@ -36,6 +46,7 @@
       if (initialAuthToken) {
        await signInWithCustomToken(window.auth, initialAuthToken);
       } else {
+       // تسجيل دخول مجهول إذا لم يتوفر رمز مخصص
        await signInAnonymously(window.auth);
       }
      } catch (error) {
@@ -46,7 +57,8 @@
    // تفعيل تسجيل الأخطاء للمساعدة في المراجعة
    setLogLevel('Debug');
   } else {
-   console.error("Firebase config is missing or invalid.");
+   // هذا هو الموقف الذي ينتج عنه رسالة الخطأ
+   console.error("Firebase config is missing or invalid. Check the __firebase_config variable.");
   }
  </script>
 
@@ -204,7 +216,6 @@
   const MAX_RETRIES = 3;
   const fetchFulfillmentResponse = async (query, retries = 0) => {
    try {
-    // ... (منطق استدعاء API لم يتغير)
     const response = await fetch(FULFILLMENT_ENDPOINT_URL, {
      method: 'POST',
      headers: { 'Content-Type': 'application/json' },
@@ -295,8 +306,9 @@
 
    // 1. منطق المصادقة والتحميل من Firestore
    useEffect(() => {
+    // التحقق مما إذا كانت الكائنات العامة لـ Firebase متوفرة
     if (!window.db || !window.auth) {
-     // في حال عدم توفر Firebase (مثل عدم وجود __firebase_config)
+     // إذا لم يكن Firebase مهيئًا (بسبب عدم توفر config)، نعتبره جاهزًا ولكن لا يتم الحفظ
      setIsFirebaseReady(true);
      return;
     }
@@ -344,8 +356,16 @@
 
        // إذا لم يكن هناك رسائل، أرسل رسالة الترحيب
        if (loadedMessages.length === 0) {
-        handleSendInitialMessage();
+        // هنا نرسل الرسالة الأولية فقط إذا لم نكن قد أرسلناها بالفعل في هذا التحميل
+        if (!sessionStorage.getItem('initial_message_sent')) {
+         handleSendInitialMessage();
+         sessionStorage.setItem('initial_message_sent', 'true');
+        }
+       } else {
+        // إذا كانت هناك رسائل، لا حاجة لإرسال الرسالة الأولية مرة أخرى
+        sessionStorage.setItem('initial_message_sent', 'true');
        }
+
       }, (error) => {
        console.error("Error listening to messages:", error);
        setIsFirebaseReady(true);
@@ -357,16 +377,21 @@
       setUserId(null);
       setMessages([]);
       setIsFirebaseReady(true);
-      handleSendInitialMessage();
+      // إذا لم يتم تهيئة Firebase (window.db غير موجود)، نعتمد على رسائل مؤقتة
+      if (!window.db && messages.length === 0) {
+       handleSendInitialMessage();
+      }
      }
     });
 
     return () => unsubscribeAuth();
    }, []); // يتم التشغيل مرة واحدة عند التحميل
 
+
    // دالة حفظ الرسالة في Firestore
    const saveMessage = async (message) => {
     if (!window.db || !userId) {
+     // إظهار تحذير في حال عدم التمكن من الحفظ
      console.warn("Firestore or User ID not available. Message not saved.");
      return;
     }
@@ -374,7 +399,7 @@
     try {
      const messagesCollectionRef = collection(window.db, `artifacts/${window.appId}/users/${userId}/chat_messages`);
 
-     // تحويل الكائنات المعقدة (مثل ProductCard و CustomButton) إلى JSON Strings قبل الحفظ
+     // تحويل الكائنات المعقدة إلى JSON Strings قبل الحفظ
      const payloadToSave = {
       text: message.text,
       sender: message.sender,
@@ -397,12 +422,12 @@
 
 
    const handleSendInitialMessage = useCallback(async () => {
-    // منع الإرسال الأولي إذا كان Firebase غير جاهز أو كانت هناك رسائل بالفعل
-    if (!isFirebaseReady || messages.length > 0) return;
+    // منع الإرسال الأولي إذا كانت هناك رسائل بالفعل
+    if (messages.length > 0) return;
 
     const fulfillmentResponse = await fetchFulfillmentResponse('مرحبا');
     const initialBotMessage = {
-     id: Date.now(), // يفضل أن يكون مؤقتًا قبل الحفظ
+     id: Date.now(),
      sender: 'bot',
      type: fulfillmentResponse.type,
      text: fulfillmentResponse.text,
@@ -411,19 +436,20 @@
      customButton: fulfillmentResponse.customButton
     };
 
-    // حفظ رسالة البوت الأولية
-    if (userId) {
+    // إذا كان Firebase متاحًا، يتم الحفظ وسيتم التحديث عبر onSnapshot
+    if (userId && window.db) {
      await saveMessage(initialBotMessage);
     } else {
-     // في حالة عدم توفر الـ userId فوراً، نضيفها مؤقتاً
+     // إذا لم يكن Firebase متاحًا (config مفقود)، نضيفها مؤقتاً
      setMessages([initialBotMessage]);
     }
-   }, [isFirebaseReady, userId, messages.length]); // يعتمد على userId و readiness
+   }, [userId, messages.length]);
 
 
    // عند اكتمال تحميل البيانات وعدم وجود رسائل، يتم إرسال رسالة الترحيب
    useEffect(() => {
-    if (isFirebaseReady && messages.length === 0) {
+    // إذا كان Firebase جاهزاً وحدثت المصادقة (أو فشلت) ولم يتم تحميل أي رسائل
+    if (isFirebaseReady && messages.length === 0 && !sessionStorage.getItem('initial_message_sent')) {
      handleSendInitialMessage();
     }
    }, [isFirebaseReady, messages.length, handleSendInitialMessage]);
@@ -436,7 +462,13 @@
 
     // رسالة المستخدم
     const userMessage = { id: Date.now(), text: userQuery, sender: 'user', type: 'TEXT' };
-    await saveMessage(userMessage);
+    // حفظ رسالة المستخدم في Firestore (سيتم تحديثها عبر onSnapshot)
+    if (userId && window.db) {
+     await saveMessage(userMessage);
+    } else {
+     // إذا لم يكن Firebase متاحًا، نعتمد على حالة React المؤقتة
+     setMessages(prev => [...prev, userMessage]);
+    }
 
     setInput('');
     setIsTyping(true);
@@ -462,7 +494,12 @@
     };
 
     // حفظ رسالة البوت في Firestore (سيقوم onSnapshot بتحديث الـ state)
-    await saveMessage(botMessage);
+    if (userId && window.db) {
+     await saveMessage(botMessage);
+    } else {
+     // إذا لم يكن Firebase متاحًا، نعتمد على حالة React المؤقتة
+     setMessages(prev => [...prev, botMessage]);
+    }
 
    }, [input, isTyping, isFirebaseReady, userId]);
 
