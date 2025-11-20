@@ -4,384 +4,486 @@
 <head>
  <meta charset="UTF-8">
  <meta name="viewport" content="width=device-width, initial-scale=1.0">
- <title>Gifts Bot Chat UI</title>
- <!-- Tailwind CSS CDN for styling -->
+ <title>أبوت متجر الهدايا (واجهة الويب)</title>
+ <!-- Tailwind CSS CDN -->
  <script src="https://cdn.tailwindcss.com"></script>
- <!-- React and Babel CDNs -->
+ <!-- React and Babel for in-browser JSX compilation -->
  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
  <style>
-  /* Custom Font */
   @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
 
   body {
    font-family: 'Cairo', sans-serif;
-   background-color: #f3f4f6;
+   background-color: #f7f7f7;
+   display: flex;
+   justify-content: center;
+   align-items: flex-start;
+   min-height: 100vh;
+   padding-top: 2rem;
+   padding-bottom: 2rem;
+  }
+
+  #root {
+   width: 100%;
+   max-width: 480px;
+   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  }
+
+  .chat-area::-webkit-scrollbar {
+   width: 8px;
+  }
+
+  .chat-area::-webkit-scrollbar-thumb {
+   background: #d1d5db;
+   border-radius: 10px;
+  }
+
+  .chat-area::-webkit-scrollbar-track {
+   background: #f3f4f6;
+  }
+
+  .typing-indicator .dot {
+   width: 8px;
+   height: 8px;
+   border-radius: 50%;
+   background-color: #333;
+   opacity: 0;
+   animation: bounce 1.4s infinite ease-in-out;
+  }
+
+  .typing-indicator .dot-1 {
+   animation-delay: -0.32s;
+  }
+
+  .typing-indicator .dot-2 {
+   animation-delay: -0.16s;
+  }
+
+  .typing-indicator .dot-3 {
+   animation-delay: 0s;
+  }
+
+  @keyframes bounce {
+
+   0%,
+   80%,
+   100% {
+    transform: scale(0);
+    opacity: 0;
+   }
+
+   40% {
+    transform: scale(1);
+    opacity: 1;
+   }
   }
  </style>
 </head>
 
 <body>
 
- <div id="root">
-  <!-- React component will be rendered here -->
- </div>
+ <div id="root"></div>
 
- <!-- 
-    =====================================================================================
-    Start of React/JSX Code
-    =====================================================================================
-    -->
+ <!-- 🛑 Firebase Module Imports (Mandatory for persistent state) 🛑 -->
+ <script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+  import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+  import { getFirestore, collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+  // Attach Firebase functions to the window object for use by the Babel script
+  window.firebase = {
+   initializeApp,
+   getAuth,
+   signInAnonymously,
+   signInWithCustomToken,
+   onAuthStateChanged,
+   getFirestore,
+   collection,
+   query,
+   orderBy,
+   onSnapshot,
+   addDoc,
+   serverTimestamp,
+   limit,
+  };
+ </script>
+
  <script type="text/babel">
-  // تم إزالة Lucide واستبدالها بـ Inline SVG لحل خطأ العنصر غير الصالح
+  const { useState, useEffect, useRef, useCallback } = React;
 
-  const { useState, useEffect, useCallback } = React;
+  // === SVG Icons (Inline replacements for Lucide) ===
+  const Sparkles = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.9 5.8 8.5 2.1c-.4-1.2-2.1-1.2-2.5 0L4.6 5.8" /><path d="M12.7 10.7 17 9.3c1.2-.4 1.2-2.1 0-2.5L12.7 5.8" /><path d="M21 21 16 16" /><path d="M15 21l-3-3" /><path d="m14 21 5-5" /></svg>);
+  const Send = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /></svg>);
+  const Loader2 = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>);
 
-  // 🛑 رابط الـ Webhook الفعلي (تم وضعه هنا ليعمل التطبيق)
-  const FULFILLMENT_ENDPOINT_URL = 'https://gifts-bot-webhook.vercel.app/webhook';
+  // === CONFIGURATION AND CONSTANTS ===
+  const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+  const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+  const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-  // =================================================================
-  // المكون الفرعي: بطاقة المنتج Rich Content
-  // =================================================================
-  const ProductCard = ({ product }) => {
-   const defaultImageUrl = "https://placehold.co/400x200/4F46E5/FFFFFF?text=Product+Image";
-   const whatsappLink = `https://wa.me/201013080898?text=أرغب%20في%20شراء%20${product.name}`;
+  const WEBHOOK_URL = 'https://gifts-bot-webhook.vercel.app/webhook';
+  const generateUUID = () => crypto.randomUUID();
 
-   // SVG لأيقونة الدولار (DollarSign)
-   const DollarIcon = (props) => (
-    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-dollar-sign">
-     <line x1="12" x2="12" y1="2" y2="22" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-    </svg>
-   );
+  // === FIREBASE INITIALIZATION AND AUTH HOOK ===
+  const useFirebase = () => {
+   const [db, setDb] = useState(null);
+   const [auth, setAuth] = useState(null);
+   const [userId, setUserId] = useState(null);
+   const [isAuthReady, setIsAuthReady] = useState(false);
 
-   // SVG لأيقونة الإرسال (Send)
-   const SendIcon = (props) => (
-    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-send">
-     <path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" />
-    </svg>
-   );
+   useEffect(() => {
+    const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore } = window.firebase;
+
+    try {
+     const app = initializeApp(firebaseConfig);
+     const firestore = getFirestore(app);
+     const authInstance = getAuth(app);
+
+     setDb(firestore);
+     setAuth(authInstance);
+
+     const unsubscribe = onAuthStateChanged(authInstance, async (user) => {
+      if (!user) {
+       try {
+        if (initialAuthToken) {
+         await signInWithCustomToken(authInstance, initialAuthToken);
+        } else {
+         await signInAnonymously(authInstance);
+        }
+       } catch (error) {
+        console.error("Firebase Auth Error:", error);
+       }
+      }
+      setUserId(authInstance.currentUser?.uid || generateUUID());
+      setIsAuthReady(true);
+     });
+
+     return () => unsubscribe();
+    } catch (e) {
+     console.error("Firebase Initialization Failed:", e);
+     setIsAuthReady(true);
+    }
+   }, []);
+
+   return { db, auth, userId, isAuthReady };
+  };
+
+  // === MESSAGE RENDERING COMPONENTS ===
+
+  // 🛑 Quick Replies Component
+  const QuickReplies = ({ replies, onQuickReplyClick }) => {
+   if (!replies || replies.length === 0) return null;
+
+   const buttons = replies.quickReplies || replies;
+   const title = replies.title || "اختر من القائمة:";
 
    return (
-    <div className="bg-white rounded-lg shadow-lg max-w-sm overflow-hidden border border-indigo-100 mx-auto">
-
-     <div className="h-40 overflow-hidden bg-gray-100">
-      <img
-       src={product.imageUrl || defaultImageUrl}
-       alt={product.name}
-       className="w-full h-full object-cover transition-transform duration-300 hover:scale-[1.05]"
-       onError={(e) => {
-        e.target.onerror = null;
-        e.target.src = defaultImageUrl;
-       }}
-      />
-     </div>
-
-     <div className="p-4 flex flex-col items-end text-right" dir="rtl">
-      <h3 className="text-xl font-bold text-gray-800 mb-2">{product.name}</h3>
-      <div className="space-y-1 text-sm text-gray-600 w-full">
-       <p className="flex justify-end items-center">
-        <DollarIcon className="ml-2 text-green-600 flex-shrink-0" />
-        <span className="font-semibold text-green-700">{product.price} جنيه</span>
-        :السعر
-       </p>
-       <p className="text-xs text-gray-500 line-clamp-2">
-        {product.description || "الوصف غير متوفر حاليًا."}
-       </p>
-      </div>
-
-      <a
-       href={whatsappLink}
-       target="_blank"
-       rel="noopener noreferrer"
-       className="mt-4 w-full flex justify-center items-center px-4 py-2 bg-green-500 text-white font-semibold rounded-md shadow-md hover:bg-green-600 transition duration-150 transform hover:scale-[1.01]"
-      >
-       <SendIcon className="ml-2" />
-       اطلب عبر الواتساب الآن
-      </a>
+    <div className="flex flex-col items-start mt-2 p-2 bg-gray-50 border-t border-gray-200 rounded-b-xl shadow-inner">
+     <p className="text-xs text-gray-500 mb-2 font-medium">{title}</p>
+     <div className="flex flex-wrap gap-2">
+      {buttons.map((reply, index) => (
+       <button
+        key={index}
+        onClick={() => onQuickReplyClick(reply)}
+        className="px-3 py-1 text-sm bg-blue-500 text-white rounded-full hover:bg-blue-600 transition duration-150 shadow-md transform hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap"
+        style={{ minWidth: '80px' }}
+       >
+        {reply}
+       </button>
+      ))}
      </div>
     </div>
    );
   };
 
 
-  // =================================================================
-  // دالة إرسال الاستعلام للـ Fulfillment API
-  // =================================================================
-  const fetchFulfillmentResponse = async (query) => {
+  const MessageBubble = ({ message, onQuickReplyClick }) => {
+   const isBot = message.role === 'bot';
+   const alignClass = isBot ? 'justify-start' : 'justify-end';
+   const bgColor = isBot ? 'bg-gray-100' : 'bg-blue-500';
+   const textColor = isBot ? 'text-gray-800' : 'text-white';
+   const borderRadius = isBot ? 'rounded-tl-xl rounded-tr-xl rounded-br-xl' : 'rounded-tl-xl rounded-tr-xl rounded-bl-xl';
 
-   const parseFulfillmentForReact = (text) => {
-    // منطق التحليل النصي المؤقت لإنشاء البطاقة
-    if (text && text.includes("محفظة") && text.includes("جنيه")) {
-     const priceMatch = text.match(/السعر: \*?(\d+)\*? جنيه/);
-     return {
-      type: 'PRODUCT_CARD',
-      data: {
-       name: "محفظة جلد رجالية فاخرة",
-       price: priceMatch ? priceMatch[1] : 'غير معروف',
-       description: 'محفظة يدوية الصنع من الجلد الطبيعي بتصميم نحيف وعصري.',
-       imageUrl: 'https://images.unsplash.com/photo-1628005322971-470a0c13d717?q=80&w=600&h=400&auto=format&fit=crop',
-      }
-     };
+   let textContent = message.text;
+   let quickRepliesData = null;
+
+   // 🛑 NEW LOGIC: Parse Rich Content from fulfillmentMessages
+   if (isBot && message.response?.queryResult?.fulfillmentMessages) {
+
+    // 1. Find Quick Replies
+    const quickRepliesMessage = message.response.queryResult.fulfillmentMessages.find(m => m.quickReplies && m.quickReplies.quickReplies && m.quickReplies.quickReplies.length > 0);
+    if (quickRepliesMessage) {
+     quickRepliesData = quickRepliesMessage.quickReplies;
     }
 
-    return {
-     type: 'TEXT',
-     data: {
-      text: text,
-      quickReplies: []
-     }
-    };
-   };
-
-   try {
-    const response = await fetch(FULFILLMENT_ENDPOINT_URL, {
-     method: 'POST',
-     headers: {
-      'Content-Type': 'application/json',
-     },
-     body: JSON.stringify({
-      session: 'projects/gifts-bot/agent/custom-session-id',
-      queryInput: {
-       text: {
-        text: query,
-        languageCode: 'ar-EG',
-       },
-      },
-      customPayload: {
-       platform: 'CUSTOM_REACT_UI'
-      }
-     }),
-    });
-
-    if (!response.ok) {
-     throw new Error(`خطأ ${response.status}: فشل الاتصال بالخادم.`);
+    // 2. Find Text Content
+    const textMessage = message.response.queryResult.fulfillmentMessages.find(m => m.text && m.text.text && m.text.text.length > 0);
+    if (textMessage) {
+     textContent = textMessage.text.text[0];
     }
-
-    const data = await response.json();
-    const fulfillmentText = data.fulfillmentText || "لم يتم الحصول على رد نصي.";
-
-    return parseFulfillmentForReact(fulfillmentText);
-
-   } catch (error) {
-    console.error("API Call FAILED:", error);
-    return {
-     type: 'TEXT',
-     data: {
-      text: `🛑 فشل الاتصال. تأكد من أن Webhook يعمل وأن الرابط صحيح. الرسالة: ${error.message}`
-     }
-    };
    }
-  };
 
-
-  // =================================================================
-  // المكون الرئيسي: واجهة الدردشة
-  // =================================================================
-  const App = () => {
-   const [messages, setMessages] = useState([]);
-   const [input, setInput] = useState('');
-   const [isTyping, setIsTyping] = useState(false);
-   const [placeholder, setPlaceholder] = useState('اكتب رسالتك...');
-
-   // SVG لأيقونة حقيبة التسوق (ShoppingBag)
-   const BagIcon = (props) => (
-    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-shopping-bag">
-     <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4" /><line x1="3" x2="21" y1="6" y2="6" /><path d="M16 10a4 4 0 0 1-8 0" />
-    </svg>
-   );
-
-   // SVG لأيقونة Zap (للأزرار السريعة)
-   const ZapIcon = (props) => (
-    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-zap">
-     <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-    </svg>
-   );
-
-   // SVG لأيقونة الإرسال في شريط الإدخال
-   const SendInputIcon = (props) => (
-    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-send">
-     <path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" />
-    </svg>
-   );
-
-
-   const handleSend = useCallback(async (query) => {
-    const userQuery = query || input;
-    if (userQuery.trim() === '') return;
-
-    const userMessage = { id: Date.now(), text: userQuery, sender: 'user', type: 'TEXT', data: { text: userQuery } };
-    setMessages((prev) => [...prev, userMessage]);
-    setInput('');
-    setIsTyping(true);
-    setPlaceholder('الروبوت يكتب...');
-
-    const fulfillmentResponse = await fetchFulfillmentResponse(userQuery);
-
-    setIsTyping(false);
-    setPlaceholder('اكتب رسالتك...');
-
-    const botMessage = {
-     id: Date.now() + 1,
-     sender: 'bot',
-     type: fulfillmentResponse.type,
-     data: fulfillmentResponse.data
-    };
-
-    setMessages((prev) => [...prev, botMessage]);
-
-   }, [input]);
-
-   const handleQuickReply = (text) => {
-    handleSend(text);
-   };
-
-   const handleKeyDown = (e) => {
-    if (e.key === 'Enter') {
-     handleSend();
-    }
-   };
-
-   useEffect(() => {
-    setMessages([{
-     id: 0,
-     sender: 'bot',
-     type: 'TEXT',
-     data: {
-      text: 'أهلاً بك! هذه واجهة محادثة جديدة. جرب أن تسأل: سعر محفظة جلد رجالية',
-      quickReplies: ['عرض الأقسام', 'أفضل التوصيات']
-     }
-    }]);
-   }, []);
-
-   useEffect(() => {
-    const chatWindow = document.getElementById('chat-messages');
-    if (chatWindow) {
-     chatWindow.scrollTop = chatWindow.scrollHeight;
-    }
-   }, [messages]);
-
-   const renderMessageContent = (message) => {
-    if (message.type === 'PRODUCT_CARD') {
-     return <ProductCard product={message.data} />;
-    }
-    return (
-     <p className="text-gray-700 whitespace-pre-wrap">{message.data.text || message.text}</p>
-    );
-   };
-
-   const lastBotMessage = messages.slice().reverse().find(m => m.sender === 'bot');
-   const quickReplies = lastBotMessage?.data?.quickReplies || [];
+   // Use the main fulfillmentText as a fallback
+   textContent = textContent || message.response?.queryResult?.fulfillmentText || "تعذر الحصول على الرد.";
 
 
    return (
-    <div dir="rtl" className="flex justify-center items-center min-h-screen bg-gray-50 p-4 font-sans">
-     <div className="w-full max-w-lg h-[90vh] flex flex-col bg-white rounded-xl shadow-2xl overflow-hidden border border-indigo-200">
+    <div className={`flex w-full mb-4 ${alignClass}`}>
+     <div className={`max-w-[85%] sm:max-w-[70%] lg:max-w-[60%]`}>
+      <div className={`p-3 shadow-md ${bgColor} ${textColor} ${borderRadius}`}>
+       <div className="text-right whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: textContent }}></div>
+      </div>
 
-      {/* رأس المحادثة */}
-      <header className="flex items-center p-4 bg-indigo-600 text-white shadow-md">
-       <BagIcon className="ml-3" />
-       <h1 className="text-lg font-bold">بوت متجر الهدايا (React Custom UI)</h1>
-      </header>
+      {/* 🛑 Render Quick Replies if found */}
+      {isBot && quickRepliesData && (
+       <QuickReplies replies={quickRepliesData} onQuickReplyClick={onQuickReplyClick} />
+      )}
+     </div>
+    </div>
+   );
+  };
 
-      {/* نافذة الرسائل */}
-      <div id="chat-messages" className="flex-1 p-4 space-y-4 overflow-y-auto bg-gray-100">
-       {messages.map((message) => (
-        <div
-         key={message.id}
-         className={`flex ${message.sender === 'user' ? 'justify-start' : 'justify-end'}`}
-        >
-         <div className={`max-w-[75%] p-3 rounded-xl shadow-sm ${message.sender === 'user'
-          ? 'bg-indigo-500 text-white rounded-tr-none'
-          : (message.type === 'PRODUCT_CARD' ? 'p-0 bg-transparent' : 'bg-white text-gray-800 rounded-tl-none border border-gray-200')
-          }`}>
-          {renderMessageContent(message)}
-         </div>
-        </div>
+  // === MAIN CHAT APPLICATION ===
+
+  const App = () => {
+   const { db, userId, isAuthReady } = useFirebase();
+   const [input, setInput] = useState('');
+   const [messages, setMessages] = useState([]);
+   const [isLoading, setIsLoading] = useState(false);
+   const messagesEndRef = useRef(null);
+   const [sessionId] = useState(generateUUID());
+
+   const { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, limit } = window.firebase;
+
+   const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+   };
+
+   // API Call Function: Sends message to the Vercel Webhook
+   const sendApiRequest = useCallback(async (queryText) => {
+    setIsLoading(true);
+
+    const requestBody = {
+     queryInput: {
+      text: { text: queryText }
+     },
+     sessionId: sessionId,
+     customPayload: true,
+    };
+
+    const maxRetries = 3;
+    const initialDelay = 1000;
+
+    const executeFetch = async (attempt) => {
+     try {
+      const response = await fetch(WEBHOOK_URL, {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+       const errorText = await response.text();
+       throw new Error(`HTTP error! Status: ${response.status}. Message: ${errorText}`);
+      }
+
+      return response.json();
+
+     } catch (error) {
+      if (attempt < maxRetries) {
+       const delay = initialDelay * Math.pow(2, attempt);
+       await new Promise(resolve => setTimeout(resolve, delay));
+       return executeFetch(attempt + 1);
+      }
+      throw error;
+     }
+    };
+
+    try {
+     const botResponse = await executeFetch(0);
+
+     // Add bot response to Firestore
+     if (db && userId) {
+      const messagesCol = collection(db, `artifacts/${appId}/users/${userId}/messages`);
+      await addDoc(messagesCol, {
+       role: 'bot',
+       text: botResponse.queryResult?.fulfillmentText || 'لا يوجد نص', // Fallback text
+       response: botResponse, // Store full response for rich content
+       timestamp: serverTimestamp(),
+       sessionId: sessionId,
+      });
+     }
+
+    } catch (error) {
+     console.error("API Call FAILED:", error);
+     // Add error message to the chat display
+     if (db && userId) {
+      const messagesCol = collection(db, `artifacts/${appId}/users/${userId}/messages`);
+      await addDoc(messagesCol, {
+       role: 'bot',
+       text: `🛑 فشل الاتصال. الرسالة: ${error.message || 'خطأ غير معروف.'}`,
+       timestamp: serverTimestamp(),
+       sessionId: sessionId,
+      });
+     }
+
+    } finally {
+     setIsLoading(false);
+    }
+   }, [db, userId, sessionId]);
+
+   // Function to handle sending a message (user input or quick reply click)
+   const sendMessage = useCallback(async (queryText) => {
+    if (!queryText.trim() || isLoading || !db || !userId) return;
+
+    const textToSend = queryText.trim();
+    setInput(''); // Clear input box
+
+    // 1. Add user message to Firestore
+    const messagesCol = collection(db, `artifacts/${appId}/users/${userId}/messages`);
+    await addDoc(messagesCol, {
+     role: 'user',
+     text: textToSend,
+     timestamp: serverTimestamp(),
+     sessionId: sessionId,
+    });
+
+    // 2. Send API request and handle bot response
+    await sendApiRequest(textToSend);
+
+   }, [isLoading, db, userId, sendApiRequest, sessionId]);
+
+   // Handle form submit
+   const handleSubmit = (e) => {
+    e.preventDefault();
+    sendMessage(input);
+   };
+
+   // Firestore Listener for Real-time Chat History
+   useEffect(() => {
+    if (!isAuthReady || !db || !userId) return;
+
+    const messagesCol = collection(db, `artifacts/${appId}/users/${userId}/messages`);
+    const q = query(messagesCol, orderBy('timestamp', 'asc'), limit(50));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+     const loadedMessages = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      timestamp: doc.data().timestamp?.toDate(),
+     })).filter(msg => msg.sessionId === sessionId && msg.text !== 'Starting session...'); // Filter system messages
+
+     setMessages(loadedMessages);
+     scrollToBottom();
+    }, (error) => {
+     console.error("Firestore Error:", error);
+    });
+
+    return () => unsubscribe();
+   }, [isAuthReady, db, userId, sessionId]);
+
+   // Scroll on new message
+   useEffect(() => {
+    scrollToBottom();
+   }, [messages]);
+
+   // Send initial welcome message on session start
+   useEffect(() => {
+    if (isAuthReady && db && userId && messages.length === 0 && !isLoading) {
+     const sendInitialMessage = async () => {
+      // Add a temporary system message to prevent re-triggering this effect
+      const messagesCol = collection(db, `artifacts/${appId}/users/${userId}/messages`);
+      await addDoc(messagesCol, {
+       role: 'system',
+       text: 'Starting session...',
+       timestamp: serverTimestamp(),
+       sessionId: sessionId,
+      });
+      await sendApiRequest('مرحبا');
+     };
+     sendInitialMessage();
+    }
+   }, [isAuthReady, db, userId, messages.length, isLoading, sendApiRequest, sessionId]);
+
+
+   if (!isAuthReady) {
+    return (
+     <div className="flex items-center justify-center h-screen bg-gray-50 text-gray-700">
+      <Loader2 className="animate-spin ml-2 h-6 w-6 text-blue-500" />
+      <p>جاري تحميل واجهة الدردشة...</p>
+     </div>
+    );
+   }
+
+   return (
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center p-4">
+     {/* Header */}
+     <header className="w-full max-w-xl bg-white shadow-lg rounded-t-xl p-4 flex items-center justify-between border-b border-blue-500">
+      <div className="flex items-center">
+       <Sparkles className="w-6 h-6 text-blue-500 ml-2" />
+       <h1 className="text-xl font-bold text-gray-800">أبوت متجر الهدايا (React Custom UI)</h1>
+      </div>
+      <div className="text-sm text-gray-500">
+       <span className="font-mono bg-gray-100 p-1 rounded-md text-xs">{userId.substring(0, 8)}...</span>
+      </div>
+     </header>
+
+     {/* Chat Area */}
+     <div className="flex-1 w-full max-w-xl bg-white overflow-hidden shadow-lg mb-4" style={{ height: '70vh' }}>
+      <div className="h-full overflow-y-auto p-4 flex flex-col chat-area" style={{ direction: 'rtl' }}>
+
+       {messages.map((msg) => (
+        <MessageBubble
+         key={msg.id}
+         message={msg}
+         onQuickReplyClick={sendMessage}
+        />
        ))}
 
-       {/* مؤشر الكتابة */}
-       {isTyping && (
-        <div className="flex justify-end">
-         <div className="max-w-[75%] p-3 rounded-xl bg-white text-gray-800 rounded-tl-none border border-gray-200">
-          <div className="typing-indicator flex space-x-1 items-center">
-           <span className="dot dot-1 bg-indigo-500"></span>
-           <span className="dot dot-2 bg-indigo-500"></span>
-           <span className="dot dot-3 bg-indigo-500"></span>
-          </div>
+       {isLoading && (
+        <div className="flex justify-start mb-4">
+         <div className="p-3 bg-gray-100 text-gray-500 rounded-tl-xl rounded-tr-xl rounded-br-xl shadow-md flex items-center">
+          <Loader2 className="animate-spin ml-2 h-4 w-4" />
+          <span className="text-sm">البوت يفكر...</span>
          </div>
         </div>
        )}
+       <div ref={messagesEndRef} />
       </div>
-
-      {/* الأزرار السريعة */}
-      {quickReplies.length > 0 && (
-       <div className="p-3 bg-white border-t border-gray-200 flex flex-wrap justify-end gap-2">
-        {quickReplies.map((reply, index) => (
-         <button
-          key={index}
-          onClick={() => handleQuickReply(reply)}
-          className="px-3 py-1 text-sm bg-indigo-50 border border-indigo-300 text-indigo-700 rounded-full hover:bg-indigo-100 transition duration-150 shadow-sm flex items-center"
-         >
-          <ZapIcon className="ml-1 text-yellow-500" />
-          {reply}
-         </button>
-        ))}
-       </div>
-      )}
-
-
-      {/* شريط الإدخال */}
-      <div className="p-4 bg-white border-t border-gray-200">
-       <div className="flex space-x-2" dir="ltr">
-        <input
-         type="text"
-         className="flex-1 w-full border border-gray-300 rounded-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-right text-gray-700"
-         value={input}
-         onChange={(e) => setInput(e.target.value)}
-         onKeyDown={handleKeyDown}
-         placeholder={placeholder}
-         dir="rtl"
-         disabled={isTyping}
-        />
-        <button
-         onClick={() => handleSend()}
-         className={`p-3 rounded-lg text-white transition duration-150 ${input.trim() && !isTyping ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-gray-400 cursor-not-allowed'
-          }`}
-         disabled={!input.trim() || isTyping}
-        >
-         <SendInputIcon className="transform -scale-x-100" />
-        </button>
-       </div>
-      </div>
-
      </div>
-     {/* CSS لمؤشر الكتابة */}
-     <style>{`
-                        .typing-indicator .dot {
-                            width: 8px;
-                            height: 8px;
-                            border-radius: 50%;
-                            background-color: #333;
-                            opacity: 0;
-                            animation: bounce 1.4s infinite ease-in-out;
-                        }
-                        .typing-indicator .dot-1 { animation-delay: -0.32s; }
-                        .typing-indicator .dot-2 { animation-delay: -0.16s; }
-                        .typing-indicator .dot-3 { animation-delay: 0s; }
-                        @keyframes bounce {
-                            0%, 80%, 100% { transform: scale(0); opacity: 0; }
-                            40% { transform: scale(1); opacity: 1; }
-                        }
-                    `}</style>
+
+     {/* Input Form */}
+     <form onSubmit={handleSubmit} className="w-full max-w-xl bg-white shadow-2xl rounded-xl p-3 flex items-center border border-gray-200">
+      <input
+       type="text"
+       value={input}
+       onChange={(e) => setInput(e.target.value)}
+       placeholder="اكتب رسالتك..."
+       disabled={isLoading}
+       className="flex-1 p-3 border-none focus:ring-0 focus:outline-none text-right placeholder-gray-400 text-gray-800"
+       dir="rtl"
+      />
+      <button
+       type="submit"
+       disabled={isLoading || !input.trim()}
+       className={`p-3 rounded-full transition duration-200 transform ${isLoading || !input.trim()
+         ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+         : 'bg-blue-500 hover:bg-blue-600 text-white shadow-lg hover:scale-105 active:scale-95'
+        }`}
+      >
+       <Send className="w-5 h-5" />
+      </button>
+     </form>
     </div>
    );
   };
 
-  // Render the App component
-  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  ReactDOM.render(<App />, document.getElementById('root'));
+
  </script>
+
 </body>
 
 </html>
