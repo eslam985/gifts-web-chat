@@ -12,6 +12,44 @@
  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+ <!-- Firebase SDKs for Firestore and Auth -->
+ <script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+  import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+  import { getFirestore, doc, setDoc, onSnapshot, collection, query, orderBy, limit, deleteDoc, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+  // يتم توفير هذه المتغيرات بشكل تلقائي في بيئة التنفيذ
+  const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+  const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+  const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+  if (Object.keys(firebaseConfig).length > 0) {
+   const app = initializeApp(firebaseConfig);
+   window.db = getFirestore(app);
+   window.auth = getAuth(app);
+   window.appId = appId; // إتاحة appId على الـ window لاستخدامه في React
+
+   // تسجيل الدخول باستخدام الرمز المخصص أو مجهول
+   onAuthStateChanged(window.auth, async (user) => {
+    if (!user) {
+     try {
+      if (initialAuthToken) {
+       await signInWithCustomToken(window.auth, initialAuthToken);
+      } else {
+       await signInAnonymously(window.auth);
+      }
+     } catch (error) {
+      console.error("Firebase Sign-In Failed:", error);
+     }
+    }
+   });
+   // تفعيل تسجيل الأخطاء للمساعدة في المراجعة
+   setLogLevel('Debug');
+  } else {
+   console.error("Firebase config is missing or invalid.");
+  }
+ </script>
+
  <style>
   /* Custom Font */
   @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
@@ -30,7 +68,6 @@
    width: 100%;
    max-width: 480px;
    height: 90vh;
-   /* للتأكد من المظهر الجيد على الهواتف */
    max-height: 900px;
   }
 
@@ -101,22 +138,21 @@
   const FULFILLMENT_ENDPOINT_URL = 'https://gifts-bot-webhook.vercel.app/webhook';
 
   // === SVG Icons ===
-  const BagIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4" /><line x1="3" x2="21" y1="6" y2="6" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>);
-  const ZapIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></svg>);
-  const SendInputIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /></svg>);
-  const DollarIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" x2="12" y1="2" y2="22" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>);
-  const WhatsAppSendIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /></svg>);
+  const BagIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4" /><line x1="3" x2="21" y1="6" y2="6" /><path d="M16 10a4 4 0 0 1-8 0" /><title>أيقونة المتجر</title></svg>);
+  const ZapIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /><title>أيقونة سريعة</title></svg>);
+  const SendInputIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /><title>أيقونة إرسال</title></svg>);
+  const DollarIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" x2="12" y1="2" y2="22" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /><title>أيقونة سعر</title></svg>);
+  const WhatsAppSendIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /><title>أيقونة واتساب</title></svg>);
 
 
   // =================================================================
   // المكون الفرعي: بطاقة المنتج Rich Content
+  // (لا حاجة للتغيير هنا)
   // =================================================================
   const ProductCard = ({ product }) => {
    const defaultImageUrl = "https://placehold.co/400x200/4F46E5/FFFFFF?text=Product+Image";
-   // رقم الواتساب ثابت حسب المثال السابق (يجب أن يتم تمريره من الـ payload في بيئة الإنتاج)
    const whatsappNumber = '201013080898';
    const whatsappLink = `https://wa.me/${whatsappNumber}?text=أرغب%20في%20شراء%20${product.name}`;
-
    const displayPrice = product.price || "غير محدد";
    const displayDescription = product.description || "الوصف غير متوفر حاليًا.";
 
@@ -147,7 +183,6 @@
        </p>
       </div>
 
-
       <a
        href={whatsappLink}
        target="_blank"
@@ -166,36 +201,26 @@
   // =================================================================
   // دالة إرسال الاستعلام للـ Fulfillment API
   // =================================================================
-  // تم استخدام آلية تراجع أسية (Exponential Backoff) بسيطة للتعامل مع أخطاء الشبكة المؤقتة
   const MAX_RETRIES = 3;
   const fetchFulfillmentResponse = async (query, retries = 0) => {
-
    try {
-    // 1. استدعاء API
+    // ... (منطق استدعاء API لم يتغير)
     const response = await fetch(FULFILLMENT_ENDPOINT_URL, {
      method: 'POST',
-     headers: {
-      'Content-Type': 'application/json',
-     },
+     headers: { 'Content-Type': 'application/json' },
      body: JSON.stringify({
       session: 'projects/gifts-bot/agent/custom-session-id-123',
       queryInput: {
-       text: {
-        text: query,
-        languageCode: 'ar-EG',
-       },
+       text: { text: query, languageCode: 'ar-EG' },
       },
-      customPayload: {
-       platform: 'CUSTOM_REACT_UI'
-      }
+      customPayload: { platform: 'CUSTOM_REACT_UI' }
      }),
     });
 
     if (!response.ok) {
      if (retries < MAX_RETRIES) {
-      const delay = Math.pow(2, retries) * 1000; // 1s, 2s, 4s
+      const delay = Math.pow(2, retries) * 1000;
       await new Promise(resolve => setTimeout(resolve, delay));
-      // إعادة المحاولة
       return fetchFulfillmentResponse(query, retries + 1);
      }
      throw new Error(`خطأ ${response.status}: فشل الاتصال بالخادم بعد ${MAX_RETRIES} محاولات.`);
@@ -205,11 +230,9 @@
     const queryResult = data.queryResult;
 
     if (!queryResult) {
-     console.error("Malformed Webhook Response:", data);
-     throw new Error("تنسيق رد Webhook غير صالح. يُرجى فحص إعدادات الـ Webhook.");
+     throw new Error("تنسيق رد Webhook غير صالح.");
     }
 
-    // 2. استخراج الرسائل
     const fulfillmentMessages = queryResult.fulfillmentMessages || [];
     const textMessage = fulfillmentMessages.find(m => m.text?.text?.length > 0);
     const quickRepliesMessage = fulfillmentMessages.find(m => m.quickReplies?.quickReplies?.length > 0);
@@ -217,20 +240,16 @@
 
     let botResponse = {
      type: 'TEXT',
-     // التأكد من وجود نص تنفيذي (fulfillmentText) أو استخدام النص الافتراضي
      text: queryResult.fulfillmentText || (textMessage?.text?.text?.[0] || "لم يتم الحصول على رد نصي."),
      quickReplies: quickRepliesMessage?.quickReplies?.quickReplies || [],
      product: null,
      customButton: null
     };
 
-    // 3. منطق فحص الحمولة المخصصة
     const productCardData = payloadMessage?.payload?.productCard;
     const customButtonData = payloadMessage?.payload?.customButton;
 
     if (productCardData && productCardData.name && productCardData.imageUrl) {
-     // التعامل مع بطاقة المنتج
-     console.log("Product Card Payload detected:", productCardData);
      botResponse.type = 'PRODUCT_CARD';
      botResponse.product = {
       name: productCardData.name,
@@ -239,14 +258,9 @@
       imageUrl: productCardData.imageUrl,
      };
     } else if (customButtonData && customButtonData.isCustomButton) {
-     // التعامل مع الزر المخصص
-     console.log("Custom Button Payload detected:", customButtonData);
      botResponse.type = 'CUSTOM_BUTTON';
      botResponse.customButton = customButtonData;
-     // يتم الحفاظ على النص العادي ليكون فوق الزر
      botResponse.text = queryResult.fulfillmentText || "يرجى التواصل مع الدعم.";
-    } else {
-     console.log("No specific rich content payload found.");
     }
 
     return botResponse;
@@ -263,7 +277,7 @@
 
 
   // =================================================================
-  // المكون الرئيسي: واجهة الدردشة
+  // المكون الرئيسي: واجهة الدردشة (مع دمج Firestore)
   // =================================================================
   const App = () => {
    const [messages, setMessages] = useState([]);
@@ -271,28 +285,172 @@
    const [isTyping, setIsTyping] = useState(false);
    const messagesEndRef = useRef(null);
    const [placeholder, setPlaceholder] = useState('اكتب رسالتك...');
+   // حالة Firebase
+   const [isFirebaseReady, setIsFirebaseReady] = useState(false);
+   const [userId, setUserId] = useState(null);
 
    const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
    };
 
+   // 1. منطق المصادقة والتحميل من Firestore
+   useEffect(() => {
+    if (!window.db || !window.auth) {
+     // في حال عدم توفر Firebase (مثل عدم وجود __firebase_config)
+     setIsFirebaseReady(true);
+     return;
+    }
+
+    const unsubscribeAuth = window.auth.onAuthStateChanged(user => {
+     if (user) {
+      const currentUserId = user.uid || crypto.randomUUID();
+      setUserId(currentUserId);
+
+      // عند تسجيل الدخول، نبدأ الاستماع للرسائل
+      const messagesCollectionRef = collection(window.db, `artifacts/${window.appId}/users/${currentUserId}/chat_messages`);
+
+      // استعلام لجلب الرسائل بترتيب زمني
+      const q = query(messagesCollectionRef, orderBy('timestamp', 'asc'));
+
+      const unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
+       const loadedMessages = snapshot.docs.map(doc => {
+        const data = doc.data();
+        // نحول timestamp إلى رقم (إذا كان موجودًا)
+        const timestampValue = data.timestamp ? (data.timestamp.seconds * 1000) : Date.now();
+
+        // تحليل الحمولة (Payload) إذا كانت موجودة ومخزنة كنص JSON
+        let richContent = {};
+        try {
+         if (data.product) richContent.product = JSON.parse(data.product);
+         if (data.customButton) richContent.customButton = JSON.parse(data.customButton);
+        } catch (e) {
+         console.error("Error parsing rich content JSON:", e);
+        }
+
+        return {
+         id: doc.id,
+         text: data.text,
+         sender: data.sender,
+         type: data.type || 'TEXT',
+         quickReplies: data.quickReplies || [],
+         ...richContent,
+         timestamp: timestampValue
+        };
+       });
+
+       setMessages(loadedMessages);
+       setIsFirebaseReady(true);
+       setTimeout(scrollToBottom, 50);
+
+       // إذا لم يكن هناك رسائل، أرسل رسالة الترحيب
+       if (loadedMessages.length === 0) {
+        handleSendInitialMessage();
+       }
+      }, (error) => {
+       console.error("Error listening to messages:", error);
+       setIsFirebaseReady(true);
+      });
+
+      return () => unsubscribeSnapshot();
+     } else {
+      // إذا لم يكن هناك مستخدم، نعتبره جاهزًا ولكن بدون بيانات محفوظة
+      setUserId(null);
+      setMessages([]);
+      setIsFirebaseReady(true);
+      handleSendInitialMessage();
+     }
+    });
+
+    return () => unsubscribeAuth();
+   }, []); // يتم التشغيل مرة واحدة عند التحميل
+
+   // دالة حفظ الرسالة في Firestore
+   const saveMessage = async (message) => {
+    if (!window.db || !userId) {
+     console.warn("Firestore or User ID not available. Message not saved.");
+     return;
+    }
+
+    try {
+     const messagesCollectionRef = collection(window.db, `artifacts/${window.appId}/users/${userId}/chat_messages`);
+
+     // تحويل الكائنات المعقدة (مثل ProductCard و CustomButton) إلى JSON Strings قبل الحفظ
+     const payloadToSave = {
+      text: message.text,
+      sender: message.sender,
+      type: message.type,
+      quickReplies: message.quickReplies || [],
+      timestamp: new Date(),
+     };
+
+     if (message.product) payloadToSave.product = JSON.stringify(message.product);
+     if (message.customButton) payloadToSave.customButton = JSON.stringify(message.customButton);
+
+     // نستخدم timestamp كرقم للـ docId لضمان الترتيب التلقائي
+     const docId = Date.now().toString();
+     await setDoc(doc(messagesCollectionRef, docId), payloadToSave);
+
+    } catch (e) {
+     console.error("Failed to save message to Firestore:", e);
+    }
+   };
+
+
+   const handleSendInitialMessage = useCallback(async () => {
+    // منع الإرسال الأولي إذا كان Firebase غير جاهز أو كانت هناك رسائل بالفعل
+    if (!isFirebaseReady || messages.length > 0) return;
+
+    const fulfillmentResponse = await fetchFulfillmentResponse('مرحبا');
+    const initialBotMessage = {
+     id: Date.now(), // يفضل أن يكون مؤقتًا قبل الحفظ
+     sender: 'bot',
+     type: fulfillmentResponse.type,
+     text: fulfillmentResponse.text,
+     quickReplies: fulfillmentResponse.quickReplies.length > 0 ? fulfillmentResponse.quickReplies : ['عرض الأقسام', 'أفضل التوصيات'],
+     product: fulfillmentResponse.product,
+     customButton: fulfillmentResponse.customButton
+    };
+
+    // حفظ رسالة البوت الأولية
+    if (userId) {
+     await saveMessage(initialBotMessage);
+    } else {
+     // في حالة عدم توفر الـ userId فوراً، نضيفها مؤقتاً
+     setMessages([initialBotMessage]);
+    }
+   }, [isFirebaseReady, userId, messages.length]); // يعتمد على userId و readiness
+
+
+   // عند اكتمال تحميل البيانات وعدم وجود رسائل، يتم إرسال رسالة الترحيب
+   useEffect(() => {
+    if (isFirebaseReady && messages.length === 0) {
+     handleSendInitialMessage();
+    }
+   }, [isFirebaseReady, messages.length, handleSendInitialMessage]);
+
+
+   // 2. منطق الإرسال (مُعدل للحفظ)
    const handleSend = useCallback(async (query) => {
     const userQuery = query || input;
-    if (userQuery.trim() === '' || isTyping) return;
+    if (userQuery.trim() === '' || isTyping || !isFirebaseReady) return;
 
-    const userMessage = { id: Date.now(), text: userQuery, sender: 'user' };
-    setMessages((prev) => [...prev, userMessage]);
+    // رسالة المستخدم
+    const userMessage = { id: Date.now(), text: userQuery, sender: 'user', type: 'TEXT' };
+    await saveMessage(userMessage);
+
     setInput('');
     setIsTyping(true);
     setPlaceholder('الروبوت يكتب...');
 
     setTimeout(scrollToBottom, 0);
 
+    // استدعاء API
     const fulfillmentResponse = await fetchFulfillmentResponse(userQuery);
 
     setIsTyping(false);
     setPlaceholder('اكتب رسالتك...');
 
+    // رسالة البوت
     const botMessage = {
      id: Date.now() + 1,
      sender: 'bot',
@@ -303,11 +461,12 @@
      customButton: fulfillmentResponse.customButton
     };
 
-    setMessages((prev) => [...prev, botMessage]);
+    // حفظ رسالة البوت في Firestore (سيقوم onSnapshot بتحديث الـ state)
+    await saveMessage(botMessage);
 
-    setTimeout(scrollToBottom, 50);
+   }, [input, isTyping, isFirebaseReady, userId]);
 
-   }, [input, isTyping]);
+   // ... (بقية الدوال لم تتغير) ...
 
    const handleQuickReply = (text) => {
     handleSend(text);
@@ -320,52 +479,22 @@
     }
    };
 
-   // رسالة الترحيب الأولية
-   useEffect(() => {
-    const sendInitialMessage = async () => {
-     const fulfillmentResponse = await fetchFulfillmentResponse('مرحبا');
-     const initialBotMessage = {
-      id: 1,
-      sender: 'bot',
-      type: fulfillmentResponse.type,
-      text: fulfillmentResponse.text,
-      // إضافة أزرار افتراضية في حالة عدم وجود ردود سريعة من الويب هوك
-      quickReplies: fulfillmentResponse.quickReplies.length > 0 ? fulfillmentResponse.quickReplies : ['عرض الأقسام', 'أفضل التوصيات'],
-      product: fulfillmentResponse.product,
-      customButton: fulfillmentResponse.customButton
-     };
-     setMessages([initialBotMessage]);
-     setTimeout(scrollToBottom, 100);
-    }
-
-    // التأكد من عدم وجود رسائل سابقة قبل إرسال 'مرحبا'
-    if (messages.length === 0) {
-     sendInitialMessage();
-    }
-
-   }, []);
-
 
    const renderMessageContent = (message) => {
     if (message.type === 'PRODUCT_CARD') {
-     // للتأكد من أن بطاقة المنتج تظهر داخل حدود الفقاعة
      return <ProductCard product={message.product} />;
     }
 
-    // منطق عرض الزر المخصص
     if (message.type === 'CUSTOM_BUTTON' && message.customButton) {
-     // رقم الواتساب ثابت
      const whatsappNumber = '201013080898';
      const initialText = message.customButton.initialText || "السلام عليكم، أرغب في التواصل بخصوص استفسار إداري.";
      const whatsappLink = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(initialText)}`;
 
      return (
       <div className="flex flex-col items-end w-full space-y-3 p-3 bg-white rounded-xl rounded-tl-none border border-gray-200 shadow-lg">
-       {/* النص العادي أولا */}
        <p className="text-gray-700 whitespace-pre-wrap w-full text-right leading-relaxed border-b border-gray-100 pb-2 mb-2">
         {message.text || "يرجى التواصل مع صاحب المتجر."}
        </p>
-       {/* الزر الأخضر المخصص */}
        <a
         href={whatsappLink}
         target="_blank"
@@ -379,7 +508,6 @@
      );
     }
 
-    // الرد النصي العادي
     const textContent = message.text || "لم يتم الحصول على رد نصي.";
     return (
      <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">{textContent}</p>
@@ -389,6 +517,14 @@
    const lastBotMessage = messages.slice().reverse().find(m => m.sender === 'bot');
    const quickReplies = lastBotMessage?.quickReplies || [];
 
+   if (!isFirebaseReady) {
+    return (
+     <div className="flex justify-center items-center h-full text-gray-500">
+      جاري تهيئة الاتصال...
+     </div>
+    );
+   }
+
    return (
     <div dir="rtl" className="flex justify-center items-center h-full bg-gray-50 p-4 font-sans">
      <div className="w-full h-full flex flex-col bg-white rounded-xl shadow-2xl overflow-hidden border border-indigo-200">
@@ -397,20 +533,20 @@
       <header className="flex items-center p-4 bg-indigo-600 text-white shadow-md">
        <BagIcon className="ml-3" />
        <h1 className="text-lg font-bold">بوت متجر الهدايا (واجهة ويب)</h1>
+       {userId && <p className="text-xs mr-auto opacity-70">المستخدم: {userId.substring(0, 8)}...</p>}
       </header>
 
       {/* نافذة الرسائل */}
       <div id="chat-messages" className="flex-1 p-4 space-y-4 overflow-y-auto bg-gray-100 chat-area-scroll">
        {messages.map((message) => {
-        // تحديد فئات فقاعة الرسالة (Bubble Classes)
         const isUser = message.sender === 'user';
         const isRichContent = message.type === 'PRODUCT_CARD' || message.type === 'CUSTOM_BUTTON';
 
         const bubbleClasses = isUser
-         ? 'p-3 bg-indigo-600 text-white rounded-tr-none' // رسالة المستخدم
+         ? 'p-3 bg-indigo-600 text-white rounded-tr-none'
          : (isRichContent
-          ? 'p-0 bg-transparent' // المحتوى الغني يحدد تنسيقه الداخلي
-          : 'p-3 bg-white text-gray-800 rounded-tl-none border border-gray-200' // رسالة البوت النصية
+          ? 'p-0 bg-transparent'
+          : 'p-3 bg-white text-gray-800 rounded-tl-none border border-gray-200'
          );
 
         return (
@@ -447,7 +583,7 @@
          <button
           key={index}
           onClick={() => handleQuickReply(reply)}
-          disabled={isTyping}
+          disabled={isTyping || !isFirebaseReady}
           className="px-3 py-1 text-sm bg-indigo-50 border border-indigo-300 text-indigo-700 rounded-full hover:bg-indigo-100 transition duration-150 shadow-sm flex items-center whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
          >
           <ZapIcon className="ml-1 text-yellow-500" />
@@ -469,13 +605,13 @@
          onKeyDown={handleKeyDown}
          placeholder={placeholder}
          dir="rtl"
-         disabled={isTyping}
+         disabled={isTyping || !isFirebaseReady}
         />
         <button
          onClick={() => handleSend()}
-         className={`p-3 rounded-lg text-white transition duration-150 ${input.trim() && !isTyping ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-gray-400 cursor-not-allowed'
+         className={`p-3 rounded-lg text-white transition duration-150 ${input.trim() && !isTyping && isFirebaseReady ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-gray-400 cursor-not-allowed'
           }`}
-         disabled={!input.trim() || isTyping}
+         disabled={!input.trim() || isTyping || !isFirebaseReady}
         >
          <SendInputIcon className="transform -scale-x-100" />
         </button>
