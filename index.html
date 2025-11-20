@@ -18,12 +18,13 @@
   import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
   import { getFirestore, doc, setDoc, onSnapshot, collection, query, orderBy, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-  // === معالجة متغيرات البيئة بدقة ===
+  // === 1. معالجة متغيرات البيئة بدقة (يدعم البيئة المحلية و Vercel) ===
   const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
   const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
   let firebaseConfig = null;
-  // التحقق من وجود القيمة ومن أنها ليست فارغة (سلسلة نصية)
+
+  // **أولوية 1: التحقق من متغير البيئة الخاص (Canvas)**
   if (typeof __firebase_config !== 'undefined' && __firebase_config && __firebase_config.trim() !== '') {
    try {
     firebaseConfig = JSON.parse(__firebase_config);
@@ -32,23 +33,48 @@
    }
   }
 
-  // تهيئة Firebase فقط إذا توفرت الإعدادات
+  // **أولوية 2: إذا لم يتوفر، قم بإنشائه من متغيرات Vercel القياسية (VITE_)**
+  // ملاحظة: Vercel يقوم بتحويل متغيرات build time إلى window.env أو process.env، ولكن في حالة ملف HTML واحد، قد نحتاج للوصول إليها مباشرة إذا تم حقنها.
+  // بما أن Vercel يتعامل مع ملفات HTML بشكل ثابت، سنفترض أنها يمكن أن تُحقن كمتغيرات في البناء.
+  // للتبسيط في ملف HTML واحد، نعتمد على أن المتغيرات تكون متاحة بشكل ما، ولكن يجب أن نكون مستعدين لإنشائها:
+  if (!firebaseConfig &&
+   (typeof process !== 'undefined' && process.env.VITE_FIREBASE_PROJECT_ID) ||
+   (typeof window !== 'undefined' && window.VITE_FIREBASE_PROJECT_ID)
+  ) {
+   const Vercel_API_KEY = (typeof process !== 'undefined' ? process.env.VITE_FIREBASE_API_KEY : null) || (typeof window !== 'undefined' ? window.VITE_FIREBASE_API_KEY : null);
+   const Vercel_PROJECT_ID = (typeof process !== 'undefined' ? process.env.VITE_FIREBASE_PROJECT_ID : null) || (typeof window !== 'undefined' ? window.VITE_FIREBASE_PROJECT_ID : null);
+   const Vercel_APP_ID = (typeof process !== 'undefined' ? process.env.VITE_FIREBASE_APP_ID : null) || (typeof window !== 'undefined' ? window.VITE_FIREBASE_APP_ID : null);
+
+   if (Vercel_API_KEY && Vercel_PROJECT_ID && Vercel_APP_ID) {
+    console.log("Using Vercel Environment Variables for Firebase Config.");
+    firebaseConfig = {
+     apiKey: Vercel_API_KEY,
+     authDomain: `${Vercel_PROJECT_ID}.firebaseapp.com`,
+     projectId: Vercel_PROJECT_ID,
+     appId: Vercel_APP_ID,
+     // تحتاج لإضافة StorageBucket و messagingSenderId يدوياً هنا إذا أردت التخزين الكامل، لكنها غير ضرورية لـ Firestore فقط
+    };
+    // يتم تجاهل __app_id الافتراضي هنا ونستخدم Vercel_PROJECT_ID كـ appId لـ Firestore Path
+    window.appId = Vercel_PROJECT_ID;
+   }
+  }
+
+  // إذا لم يتم العثور على أي إعدادات، لا يوجد firebaseConfig
+
+  // === 2. تهيئة Firebase ===
   if (firebaseConfig) {
    const app = initializeApp(firebaseConfig);
    window.db = getFirestore(app);
    window.auth = getAuth(app);
-   window.appId = appId;
+
    window.isFirebaseAvailable = true; // علامة لـ React
 
    // تسجيل الدخول
    onAuthStateChanged(window.auth, async (user) => {
     if (!user) {
      try {
-      if (initialAuthToken) {
-       await signInWithCustomToken(window.auth, initialAuthToken);
-      } else {
-       await signInAnonymously(window.auth);
-      }
+      // نستخدم تسجيل الدخول المجهول كبديل آمن وسريع في التطبيقات العامة
+      await signInAnonymously(window.auth);
      } catch (error) {
       console.error("Firebase Sign-In Failed:", error);
      }
@@ -181,7 +207,7 @@
 
 
   // =================================================================
-  // المكون الفرعي: بطاقة المنتج Rich Content (بدون تغيير)
+  // المكون الفرعي: بطاقة المنتج Rich Content
   // =================================================================
   const ProductCard = ({ product }) => {
    const defaultImageUrl = "https://placehold.co/400x200/4F46E5/FFFFFF?text=Product+Image";
@@ -233,7 +259,7 @@
 
 
   // =================================================================
-  // دالة إرسال الاستعلام للـ Fulfillment API (بدون تغيير)
+  // دالة إرسال الاستعلام للـ Fulfillment API
   // =================================================================
   const MAX_RETRIES = 3;
   const fetchFulfillmentResponse = async (query, retries = 0) => {
@@ -321,6 +347,8 @@
    const [isFirebaseReady, setIsFirebaseReady] = useState(false);
    const [userId, setUserId] = useState(null);
    const isFirebaseAvailable = typeof window.isFirebaseAvailable !== 'undefined' ? window.isFirebaseAvailable : false;
+   // استخدام window.appId الذي تم تعيينه في <script type="module">
+   const firestoreAppId = typeof window.appId !== 'undefined' ? window.appId : 'default-app-id';
 
    const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -346,11 +374,13 @@
       const currentUserId = user.uid || crypto.randomUUID();
       setUserId(currentUserId);
 
-      const messagesCollectionRef = collection(window.db, `artifacts/${window.appId}/users/${currentUserId}/chat_messages`);
-      const q = query(messagesCollectionRef, orderBy('timestamp', 'asc'));
+      // استخدام firestoreAppId لضمان المسار الصحيح سواء في البيئة المحلية أو Vercel
+      const messagesCollectionRef = collection(window.db, `artifacts/${firestoreAppId}/users/${currentUserId}/chat_messages`);
+      // ملاحظة: تم إزالة orderBy لتجنب أخطاء الفهرسة (Index Errors) في Firestore، وسيتم الفرز في JS
+      const q = query(messagesCollectionRef);
 
       const unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
-       const loadedMessages = snapshot.docs.map(doc => {
+       let loadedMessages = snapshot.docs.map(doc => {
         const data = doc.data();
         const timestampValue = data.timestamp ? (data.timestamp.seconds * 1000) : Date.now();
 
@@ -372,6 +402,9 @@
          timestamp: timestampValue
         };
        });
+
+       // فرز الرسائل محليًا بعد إزالة orderBy من الاستعلام
+       loadedMessages.sort((a, b) => a.timestamp - b.timestamp);
 
        setMessages(loadedMessages);
        setIsFirebaseReady(true);
@@ -396,7 +429,7 @@
     });
 
     return () => unsubscribeAuth();
-   }, [isFirebaseAvailable]); // يعتمد على توفر Firebase
+   }, [isFirebaseAvailable, firestoreAppId]);
 
 
    // دالة حفظ الرسالة (تستخدم Firestore إذا متاح، وإلا sessionStorage)
@@ -404,7 +437,7 @@
     // 1. منطق الحفظ إلى Firestore
     if (isFirebaseAvailable && window.db && userId) {
      try {
-      const messagesCollectionRef = collection(window.db, `artifacts/${window.appId}/users/${userId}/chat_messages`);
+      const messagesCollectionRef = collection(window.db, `artifacts/${firestoreAppId}/users/${userId}/chat_messages`);
 
       const payloadToSave = {
        text: message.text,
@@ -457,7 +490,7 @@
     // حفظ رسالة البوت الأولية (سيتم استخدام Firestore أو SessionStorage)
     await saveMessage(initialBotMessage, messages);
 
-   }, [messages.length, isFirebaseAvailable, userId]);
+   }, [messages.length, isFirebaseAvailable, firestoreAppId, userId, messages]);
 
 
    // 2. منطق الإرسال
@@ -503,7 +536,7 @@
     // حفظ رسالة البوت (سيتم استخدام Firestore أو SessionStorage)
     await saveMessage(botMessage, [...messages, userMessage]);
 
-   }, [input, isTyping, isFirebaseReady, isFirebaseAvailable, userId, messages]);
+   }, [input, isTyping, isFirebaseReady, isFirebaseAvailable, userId, messages, firestoreAppId]);
 
 
    const handleQuickReply = (text) => {
@@ -575,6 +608,11 @@
        {!isFirebaseAvailable && (
         <span className="mr-2 text-xs text-yellow-200 bg-indigo-800 p-1 rounded-full px-2">
          تخزين مؤقت (Session)
+        </span>
+       )}
+       {isFirebaseAvailable && (
+        <span className="mr-2 text-xs text-green-200 bg-indigo-800 p-1 rounded-full px-2">
+         تخزين دائم (Firestore)
         </span>
        )}
       </header>
