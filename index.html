@@ -23,12 +23,15 @@
    justify-content: center;
    align-items: center;
    min-height: 100vh;
+   margin: 0;
   }
 
   #root {
    width: 100%;
    max-width: 480px;
    height: 90vh;
+   /* للتأكد من المظهر الجيد على الهواتف */
+   max-height: 900px;
   }
 
   /* Custom Scrollbar for Chat Area */
@@ -94,7 +97,7 @@
  <script type="text/babel">
   const { useState, useEffect, useCallback, useRef } = React;
 
-  // 🛑 Webhook URL
+  // 🛑 نقطة النهاية للـ Webhook
   const FULFILLMENT_ENDPOINT_URL = 'https://gifts-bot-webhook.vercel.app/webhook';
 
   // === SVG Icons ===
@@ -113,6 +116,9 @@
    // رقم الواتساب ثابت حسب المثال السابق (يجب أن يتم تمريره من الـ payload في بيئة الإنتاج)
    const whatsappNumber = '201013080898';
    const whatsappLink = `https://wa.me/${whatsappNumber}?text=أرغب%20في%20شراء%20${product.name}`;
+
+   const displayPrice = product.price || "غير محدد";
+   const displayDescription = product.description || "الوصف غير متوفر حاليًا.";
 
    return (
     <div className="bg-white rounded-xl shadow-lg max-w-sm overflow-hidden border border-indigo-100 mx-auto">
@@ -133,13 +139,14 @@
       <div className="space-y-1 text-sm text-gray-600 w-full">
        <p className="flex justify-end items-center">
         <DollarIcon className="ml-2 text-green-600 flex-shrink-0" />
-        <span className="font-semibold text-green-700">{product.price} جنيه</span>
+        <span className="font-semibold text-green-700">{displayPrice}</span>
         :السعر
        </p>
        <p className="text-xs text-gray-500 line-clamp-2">
-        {product.description || "الوصف غير متوفر حاليًا."}
+        {displayDescription}
        </p>
       </div>
+
 
       <a
        href={whatsappLink}
@@ -157,9 +164,11 @@
 
 
   // =================================================================
-  // دالة إرسال الاستعلام للـ Fulfillment API (مُعدلة للإصلاح)
+  // دالة إرسال الاستعلام للـ Fulfillment API
   // =================================================================
-  const fetchFulfillmentResponse = async (query) => {
+  // تم استخدام آلية تراجع أسية (Exponential Backoff) بسيطة للتعامل مع أخطاء الشبكة المؤقتة
+  const MAX_RETRIES = 3;
+  const fetchFulfillmentResponse = async (query, retries = 0) => {
 
    try {
     // 1. استدعاء API
@@ -183,7 +192,13 @@
     });
 
     if (!response.ok) {
-     throw new Error(`خطأ ${response.status}: فشل الاتصال بالخادم.`);
+     if (retries < MAX_RETRIES) {
+      const delay = Math.pow(2, retries) * 1000; // 1s, 2s, 4s
+      await new Promise(resolve => setTimeout(resolve, delay));
+      // إعادة المحاولة
+      return fetchFulfillmentResponse(query, retries + 1);
+     }
+     throw new Error(`خطأ ${response.status}: فشل الاتصال بالخادم بعد ${MAX_RETRIES} محاولات.`);
     }
 
     const data = await response.json();
@@ -198,11 +213,11 @@
     const fulfillmentMessages = queryResult.fulfillmentMessages || [];
     const textMessage = fulfillmentMessages.find(m => m.text?.text?.length > 0);
     const quickRepliesMessage = fulfillmentMessages.find(m => m.quickReplies?.quickReplies?.length > 0);
-    // نبحث عن رسالة تحمل حمولة مخصصة (Custom Payload)
     const payloadMessage = fulfillmentMessages.find(m => m.payload);
 
     let botResponse = {
      type: 'TEXT',
+     // التأكد من وجود نص تنفيذي (fulfillmentText) أو استخدام النص الافتراضي
      text: queryResult.fulfillmentText || (textMessage?.text?.text?.[0] || "لم يتم الحصول على رد نصي."),
      quickReplies: quickRepliesMessage?.quickReplies?.quickReplies || [],
      product: null,
@@ -224,11 +239,11 @@
       imageUrl: productCardData.imageUrl,
      };
     } else if (customButtonData && customButtonData.isCustomButton) {
-     // التعامل مع الزر المخصص (مثل زر الواتساب)
+     // التعامل مع الزر المخصص
      console.log("Custom Button Payload detected:", customButtonData);
      botResponse.type = 'CUSTOM_BUTTON';
      botResponse.customButton = customButtonData;
-     // يجب أن نحافظ على النص العادي ليكون فوق الزر
+     // يتم الحفاظ على النص العادي ليكون فوق الزر
      botResponse.text = queryResult.fulfillmentText || "يرجى التواصل مع الدعم.";
     } else {
      console.log("No specific rich content payload found.");
@@ -305,7 +320,7 @@
     }
    };
 
-   // Initial Welcome Message
+   // رسالة الترحيب الأولية
    useEffect(() => {
     const sendInitialMessage = async () => {
      const fulfillmentResponse = await fetchFulfillmentResponse('مرحبا');
@@ -314,6 +329,7 @@
       sender: 'bot',
       type: fulfillmentResponse.type,
       text: fulfillmentResponse.text,
+      // إضافة أزرار افتراضية في حالة عدم وجود ردود سريعة من الويب هوك
       quickReplies: fulfillmentResponse.quickReplies.length > 0 ? fulfillmentResponse.quickReplies : ['عرض الأقسام', 'أفضل التوصيات'],
       product: fulfillmentResponse.product,
       customButton: fulfillmentResponse.customButton
@@ -338,15 +354,13 @@
 
     // منطق عرض الزر المخصص
     if (message.type === 'CUSTOM_BUTTON' && message.customButton) {
-     // رقم الواتساب ثابت حسب المثال السابق (يجب أن يتم تمريره من الـ payload في بيئة الإنتاج)
+     // رقم الواتساب ثابت
      const whatsappNumber = '201013080898';
-     // تأكد من أن initialText محدد لتجنب خطأ التشفير
      const initialText = message.customButton.initialText || "السلام عليكم، أرغب في التواصل بخصوص استفسار إداري.";
      const whatsappLink = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(initialText)}`;
 
-     // استخدام div بدلاً من p للنص العادي لتجنب مشاكل التنسيق مع الزر
      return (
-      <div className="flex flex-col items-end w-full space-y-3 p-3 bg-white rounded-xl rounded-tl-none border border-gray-200">
+      <div className="flex flex-col items-end w-full space-y-3 p-3 bg-white rounded-xl rounded-tl-none border border-gray-200 shadow-lg">
        {/* النص العادي أولا */}
        <p className="text-gray-700 whitespace-pre-wrap w-full text-right leading-relaxed border-b border-gray-100 pb-2 mb-2">
         {message.text || "يرجى التواصل مع صاحب المتجر."}
@@ -368,7 +382,7 @@
     // الرد النصي العادي
     const textContent = message.text || "لم يتم الحصول على رد نصي.";
     return (
-     <p className="text-gray-700 whitespace-pre-wrap">{textContent}</p>
+     <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">{textContent}</p>
     );
    };
 
@@ -382,37 +396,39 @@
       {/* رأس المحادثة */}
       <header className="flex items-center p-4 bg-indigo-600 text-white shadow-md">
        <BagIcon className="ml-3" />
-       <h1 className="text-lg font-bold">بوت متجر الهدايا (React Custom UI)</h1>
+       <h1 className="text-lg font-bold">بوت متجر الهدايا (واجهة ويب)</h1>
       </header>
 
       {/* نافذة الرسائل */}
       <div id="chat-messages" className="flex-1 p-4 space-y-4 overflow-y-auto bg-gray-100 chat-area-scroll">
-       {messages.map((message) => (
-        <div
-         key={message.id}
-         className={`flex ${message.sender === 'user' ? 'justify-start' : 'justify-end'}`}
-        >
-         {/* ملاحظة: بالنسبة لـ PRODUCT_CARD و CUSTOM_BUTTON، نترك الـ div الخارجي (الذي يحتوي على message.sender) بدون خلفية و padding،
-                                        لأن محتوى البطاقة أو الزر يأتي بتنسيقه الخاص (p-0 bg-transparent). 
-                                    */}
-         <div className={`max-w-[75%] rounded-xl shadow-sm ${message.sender === 'user'
-          ? 'p-3 bg-indigo-600 text-white rounded-tr-none' // رسالة المستخدم
-          : (message.type === 'PRODUCT_CARD'
-           ? 'p-0 bg-transparent' // حالة البطاقة (المحتوى يحدد تنسيقه)
-           : (message.type === 'CUSTOM_BUTTON'
-            ? 'p-0 bg-transparent' // حالة الزر المخصص (المحتوى يحدد تنسيقه)
-            : 'p-3 bg-white text-gray-800 rounded-tl-none border border-gray-200') // النص العادي
-          )}`}
+       {messages.map((message) => {
+        // تحديد فئات فقاعة الرسالة (Bubble Classes)
+        const isUser = message.sender === 'user';
+        const isRichContent = message.type === 'PRODUCT_CARD' || message.type === 'CUSTOM_BUTTON';
+
+        const bubbleClasses = isUser
+         ? 'p-3 bg-indigo-600 text-white rounded-tr-none' // رسالة المستخدم
+         : (isRichContent
+          ? 'p-0 bg-transparent' // المحتوى الغني يحدد تنسيقه الداخلي
+          : 'p-3 bg-white text-gray-800 rounded-tl-none border border-gray-200' // رسالة البوت النصية
+         );
+
+        return (
+         <div
+          key={message.id}
+          className={`flex ${isUser ? 'justify-start' : 'justify-end'}`}
          >
-          {renderMessageContent(message)}
+          <div className={`max-w-[75%] rounded-xl shadow-sm ${bubbleClasses}`}>
+           {renderMessageContent(message)}
+          </div>
          </div>
-        </div>
-       ))}
+        );
+       })}
 
        {/* مؤشر الكتابة */}
        {isTyping && (
         <div className="flex justify-end">
-         <div className="max-w-[75%] p-3 rounded-xl bg-white text-gray-800 rounded-tl-none border border-gray-200">
+         <div className="max-w-[75%] p-3 rounded-xl bg-white text-gray-800 rounded-tl-none border border-gray-200 shadow-sm">
           <div className="typing-indicator flex space-x-1 items-center">
            <span className="dot dot-1 bg-indigo-500"></span>
            <span className="dot dot-2 bg-indigo-500"></span>
@@ -431,7 +447,8 @@
          <button
           key={index}
           onClick={() => handleQuickReply(reply)}
-          className="px-3 py-1 text-sm bg-indigo-50 border border-indigo-300 text-indigo-700 rounded-full hover:bg-indigo-100 transition duration-150 shadow-sm flex items-center whitespace-nowrap"
+          disabled={isTyping}
+          className="px-3 py-1 text-sm bg-indigo-50 border border-indigo-300 text-indigo-700 rounded-full hover:bg-indigo-100 transition duration-150 shadow-sm flex items-center whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
          >
           <ZapIcon className="ml-1 text-yellow-500" />
           {reply}
@@ -446,7 +463,7 @@
        <div className="flex space-x-2" dir="ltr">
         <input
          type="text"
-         className="flex-1 w-full border border-gray-300 rounded-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-right text-gray-700"
+         className="flex-1 w-full border border-gray-300 rounded-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-right text-gray-700 disabled:bg-gray-50 disabled:cursor-not-allowed"
          value={input}
          onChange={(e) => setInput(e.target.value)}
          onKeyDown={handleKeyDown}
