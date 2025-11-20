@@ -18,78 +18,45 @@
   import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
   import { getFirestore, doc, setDoc, onSnapshot, collection, query, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-  // ===============================================================
-  // 🛑🛑🛑  الإعدادات النهائية: تم إدخال مفتاح API الجديد 🛑🛑🛑
-  // ===============================================================
-  const FIREBASE_CONFIG = {
-   // المفتاح الجديد الذي تم إنشاؤه: AlzaSyDknd3Efc48gB4FsufeFAsiK_5oMFZWHEY
-   apiKey: "AIzaSyDknd3Efc48gB4FsufeFAsiK_5oMFZWHEY",
-   projectId: "giftsbot-eslam",
-   appId: "1:61353800748:web:6a4bc3ce09f5bb4db70d89",
+  // === 1. التكوين المباشر لـ Firebase (لأغراض التشخيص) ===
+  // يتم استخدام التكوين المقدم من قبلك مباشرة
+  const firebaseConfig = {
+   apiKey: "AIzaSyDh2miXzTIza7u85ygQMgPnvGnjNa13WAM",
    authDomain: "giftsbot-eslam.firebaseapp.com",
-   storageBucket: "giftsbot-eslam.appspot.com",
+   projectId: "giftsbot-eslam",
+   storageBucket: "giftsbot-eslam.firebasestorage.app",
    messagingSenderId: "61353800748",
+   appId: "1:61353800748:web:6a4bc3ce09f5bb4db70d89"
   };
-  // ===============================================================
 
+  // استخدام projectId كـ appId لمسار Firestore
+  window.appId = firebaseConfig.projectId;
 
-  async function initializeFirebase() {
-   window.isFirebaseAvailable = false;
+  // === 2. تهيئة Firebase ===
+  if (firebaseConfig.projectId) {
+   const app = initializeApp(firebaseConfig);
+   window.db = getFirestore(app);
+   window.auth = getAuth(app);
 
-   const { apiKey, projectId, appId } = FIREBASE_CONFIG;
+   window.isFirebaseAvailable = true; // علامة لـ React
 
-   // 📢 طباعة القيم للتصحيح 📢
-   console.log("--- Manual Config Debug ---");
-   console.log("API Key Provided:", apiKey && apiKey.startsWith("DUMMY_") ? "🛑 DUMMY KEY - NEEDS REPLACING" : (apiKey.substring(0, 5) + '...'));
-   console.log("Project ID Provided:", projectId || 'Missing');
-   console.log("App ID Provided:", appId || 'Missing');
-   console.log("---------------------------");
-
-   if (apiKey.startsWith("DUMMY_")) {
-    console.error("Firebase keys are set to DUMMY placeholders. Please update FIREBASE_CONFIG in the HTML file.");
-    return;
-   }
-
-
-   // === 2. تهيئة Firebase ===
-   window.appId = FIREBASE_CONFIG.projectId;
-
-   try {
-    const app = initializeApp(FIREBASE_CONFIG);
-    window.db = getFirestore(app);
-    window.auth = getAuth(app);
-    window.isFirebaseAvailable = true;
-
-    // تمرير دوال Firestore بشكل صريح إلى الكائن window
-    window.collection = collection;
-    window.doc = doc;
-    window.setDoc = setDoc;
-    window.onSnapshot = onSnapshot;
-    window.query = query;
-
-    // تسجيل الدخول المجهول لتحديد userId
-    onAuthStateChanged(window.auth, async (user) => {
-     if (!user) {
-      try {
-       await signInAnonymously(window.auth);
-       console.log("Firebase Sign-In Succeeded.");
-      } catch (error) {
-       // هذا الخطأ يجب أن يكون قد اختفى الآن
-       console.error("Firebase Sign-In Failed: (API Key might be invalid or permissions restricted)", error);
-       window.isFirebaseAvailable = false;
-      }
+   // تسجيل الدخول المجهول لتحديد userId
+   onAuthStateChanged(window.auth, async (user) => {
+    if (!user) {
+     try {
+      await signInAnonymously(window.auth);
+      console.log("Signed in anonymously.");
+     } catch (error) {
+      console.error("Firebase Sign-In Failed:", error);
      }
-    });
-    setLogLevel('Debug');
-    console.log("Firebase Initialized successfully with Manual Configuration.");
-   } catch (error) {
-    console.error("Error during Firebase initialization (Config issue):", error);
-    window.isFirebaseAvailable = false;
-   }
+    }
+   });
+   setLogLevel('Debug');
+   console.log("Firebase Initialized using Hardcoded Config.");
+  } else {
+   console.error("Firebase Config is missing or invalid. Using sessionStorage for message persistence.");
+   window.isFirebaseAvailable = false; // علامة لـ React
   }
-
-  // بدء عملية التهيئة فوراً
-  initializeFirebase();
  </script>
 
  <style>
@@ -356,9 +323,6 @@
    const isFirebaseAvailable = typeof window.isFirebaseAvailable !== 'undefined' ? window.isFirebaseAvailable : false;
    const firestoreAppId = typeof window.appId !== 'undefined' ? window.appId : 'default-app-id';
 
-   // الوصول إلى دوال Firestore من الكائن العام
-   const { collection, doc, setDoc, onSnapshot, query } = window;
-
 
    const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -366,109 +330,84 @@
 
    // 1. منطق المصادقة والتحميل (يدعم Firestore كأولوية، ثم SessionStorage)
    useEffect(() => {
-    let isMounted = true;
-
-    // === الخطوة 1: تعريف دالة تحميل البيانات ===
-    const performDataLoading = () => {
-     if (!isFirebaseAvailable || !window.db || !window.auth) {
-      // **الخطة البديلة:** تحميل من sessionStorage
-      const loaded = loadMessagesFromSession();
-      if (isMounted) {
-       setMessages(loaded);
-       setIsFirebaseReady(true);
-       if (loaded.length === 0) {
-        handleSendInitialMessage();
-       }
-       setTimeout(scrollToBottom, 50);
-      }
-      return;
+    if (!isFirebaseAvailable || !window.db || !window.auth) {
+     // **الخطة البديلة:** تحميل من sessionStorage
+     const loaded = loadMessagesFromSession();
+     setMessages(loaded);
+     setIsFirebaseReady(true);
+     if (loaded.length === 0) {
+      handleSendInitialMessage();
      }
+     setTimeout(scrollToBottom, 50);
+     return;
+    }
 
-     // **الأولوية:** الاتصال بـ Firestore
-     const unsubscribeAuth = window.auth.onAuthStateChanged(user => {
-      if (user) {
-       const currentUserId = user.uid || crypto.randomUUID();
-       setUserId(currentUserId);
+    // **الأولوية:** الاتصال بـ Firestore
+    const unsubscribeAuth = window.auth.onAuthStateChanged(user => {
+     if (user) {
+      const currentUserId = user.uid || crypto.randomUUID();
+      setUserId(currentUserId);
 
-       const messagesCollectionRef = collection(window.db, `artifacts/${firestoreAppId}/users/${currentUserId}/chat_messages`);
-       const q = query(messagesCollectionRef);
+      // استخدام firestoreAppId لضمان المسار الصحيح 
+      // Path: /artifacts/{giftsbot-eslam}/users/{userId}/chat_messages
+      const messagesCollectionRef = collection(window.db, `artifacts/${firestoreAppId}/users/${currentUserId}/chat_messages`);
+      // تم إزالة orderBy
+      const q = query(messagesCollectionRef);
 
-       const unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
-        let loadedMessages = snapshot.docs.map(doc => {
-         const data = doc.data();
-         const timestampValue = data.timestamp ? (data.timestamp.seconds * 1000) : Date.now();
+      const unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
+       let loadedMessages = snapshot.docs.map(doc => {
+        const data = doc.data();
+        const timestampValue = data.timestamp ? (data.timestamp.seconds * 1000) : Date.now();
 
-         let richContent = {};
-         try {
-          if (data.product) richContent.product = JSON.parse(data.product);
-          if (data.customButton) richContent.customButton = JSON.parse(data.customButton);
-         } catch (e) {
-          console.error("Error parsing rich content JSON:", e);
-         }
-
-         return {
-          id: doc.id,
-          text: data.text,
-          sender: data.sender,
-          type: data.type || 'TEXT',
-          quickReplies: data.quickReplies || [],
-          ...richContent,
-          timestamp: timestampValue
-         };
-        });
-
-        // فرز الرسائل محليًا
-        loadedMessages.sort((a, b) => a.timestamp - b.timestamp);
-
-        if (isMounted) {
-         setMessages(loadedMessages);
-         setIsFirebaseReady(true);
-         setTimeout(scrollToBottom, 50);
-
-         if (loadedMessages.length === 0) {
-          handleSendInitialMessage();
-         }
+        let richContent = {};
+        try {
+         if (data.product) richContent.product = JSON.parse(data.product);
+         if (data.customButton) richContent.customButton = JSON.parse(data.customButton);
+        } catch (e) {
+         console.error("Error parsing rich content JSON:", e);
         }
-       }, (error) => {
-        console.error("Error listening to messages:", error);
-        if (isMounted) {
-         if (!messages.length) handleSendInitialMessage();
-         setIsFirebaseReady(true);
-        }
+
+        return {
+         id: doc.id,
+         text: data.text,
+         sender: data.sender,
+         type: data.type || 'TEXT',
+         quickReplies: data.quickReplies || [],
+         ...richContent,
+         timestamp: timestampValue
+        };
        });
 
-       return () => unsubscribeSnapshot();
-      } else {
-       if (isMounted) {
-        setUserId(null);
-        setMessages([]);
-        setIsFirebaseReady(true);
-        if (!messages.length) handleSendInitialMessage();
+       // فرز الرسائل محليًا بعد إزالة orderBy من الاستعلام
+       loadedMessages.sort((a, b) => a.timestamp - b.timestamp);
+
+       setMessages(loadedMessages);
+       setIsFirebaseReady(true);
+       setTimeout(scrollToBottom, 50);
+
+       if (loadedMessages.length === 0) {
+        handleSendInitialMessage();
        }
-      }
-     });
+      }, (error) => {
+       console.error("Error listening to messages:", error);
+       // إذا حدث خطأ في onSnapshot (مثل قواعد الأمان)، نعود للتخزين المؤقت
+       if (!messages.length) handleSendInitialMessage();
+       setIsFirebaseReady(true);
+      });
 
-     return () => unsubscribeAuth();
-    };
-
-    // === الخطوة 2: دالة انتظار التهيئة والتنفيذ ===
-    const checkInitialization = () => {
-     if (window.isFirebaseAvailable !== undefined) {
-      // إذا فشلت التهيئة (بسبب مفتاح API)، سنقوم بالتحميل من sessionStorage
-      if (!window.isFirebaseAvailable) {
-       console.warn("Firebase failed initialization. Falling back to session storage.");
-      }
-      if (isMounted) performDataLoading();
+      return () => unsubscribeSnapshot();
      } else {
-      setTimeout(checkInitialization, 100);
+      // حالة عدم المصادقة
+      setUserId(null);
+      setMessages([]);
+      setIsFirebaseReady(true);
+      // يجب أن تتم المصادقة أولاً، ثم يتم التحميل، لكن هنا نطلق رسالة الترحيب فقط إذا لم يكن هناك رسائل
+      if (!messages.length) handleSendInitialMessage();
      }
-    };
+    });
 
-    // === الخطوة 3: بدء التنفيذ ===
-    checkInitialization();
-
-    return () => { isMounted = false; };
-   }, [isFirebaseAvailable, firestoreAppId]); // تم حذف messages من هنا لتجنب حلقة لا نهائية
+    return () => unsubscribeAuth();
+   }, [isFirebaseAvailable, firestoreAppId]);
 
 
    // دالة حفظ الرسالة (تستخدم Firestore إذا متاح، وإلا sessionStorage)
@@ -476,7 +415,6 @@
     // 1. منطق الحفظ إلى Firestore
     if (isFirebaseAvailable && window.db && userId) {
      try {
-      // استخدام دوال Firestore المعينة عالمياً (collection, doc, setDoc)
       const messagesCollectionRef = collection(window.db, `artifacts/${firestoreAppId}/users/${userId}/chat_messages`);
 
       const payloadToSave = {
@@ -512,6 +450,9 @@
 
 
    const handleSendInitialMessage = useCallback(async () => {
+    // يتم استدعاء هذه الدالة فقط إذا لم يتم تحميل أي رسائل
+    if (messages.length > 0) return;
+
     // رسالة المستخدم الافتراضية للترحيب
     const fulfillmentResponse = await fetchFulfillmentResponse('مرحبا');
     const initialBotMessage = {
@@ -526,10 +467,9 @@
     };
 
     // حفظ رسالة البوت الأولية (سيتم استخدام Firestore أو SessionStorage)
-    // نستخدم messages.length هنا للتأكد من أنها أول رسالة فقط
     await saveMessage(initialBotMessage, messages);
 
-   }, [messages, isFirebaseAvailable, firestoreAppId, userId]);
+   }, [messages.length, isFirebaseAvailable, firestoreAppId, userId, messages]);
 
 
    // 2. منطق الإرسال
@@ -572,11 +512,8 @@
      timestamp: Date.now() + 1
     };
 
-    // في حالة SessionStorage، يجب أن نضيف رسالة المستخدم يدوياً قبل حفظ رسالة البوت
-    const messagesForBotSave = isFirebaseAvailable ? messages : [...messages, userMessage];
-
     // حفظ رسالة البوت (سيتم استخدام Firestore أو SessionStorage)
-    await saveMessage(botMessage, messagesForBotSave);
+    await saveMessage(botMessage, [...messages, userMessage]);
 
    }, [input, isTyping, isFirebaseReady, isFirebaseAvailable, userId, messages, firestoreAppId]);
 
