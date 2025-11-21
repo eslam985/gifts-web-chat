@@ -591,14 +591,13 @@
       <header className="flex items-center p-4 bg-gray-600 text-white shadow-md">
        <BagIcon className="ml-3" />
        <h1 className="text-lg font-bold">مساعد متجر الهدايا Ai </h1>
-       {userId && <p className="text-xs mr-auto opacity-0 text-white" >المستخدم: {userId.substring(0, 8)}...</p>}
        {!isFirebaseAvailable && (
         <span class="mr-2 text-xs text-green-600 bg-gray-800 p-1 rounded-full px-2">
          تخزين مؤقت (Session)
         </span>
        )}
        {isFirebaseAvailable && (
-        <span className="mr-2 text-xs text-green-200 bg-indigo-800 p-1 rounded-full px-2">
+        <span className="mr-2 text-xs text-green-500 bg-gray-700 p-1 rounded-full px-2">
          تخزين دائم (Firestore)
         </span>
        )}
