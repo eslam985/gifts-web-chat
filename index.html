@@ -72,6 +72,7 @@
   @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
 
   body {
+   flex-direction: column;
    font-family: 'Cairo', sans-serif;
    background-color: #f3f4f6;
    display: flex;
@@ -692,9 +693,14 @@
 
   ReactDOM.createRoot(document.getElementById('root')).render(<App />);
  </script>
- <footer>
-  Designed by EsLam
- </footer>
+ <!-- start footer-->
+ <div class="footer">
+  <div class="section-container flex-between">
+   <div class="copyright">copyright to eslam sayed 2025</div>
+   <div class="design">designed by eslam sayed</div>
+  </div>
+ </div>
+ <!--end footer-->
 </body>
 
 </html>
