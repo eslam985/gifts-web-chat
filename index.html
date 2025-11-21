@@ -14,58 +14,58 @@
  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
 
- <!-- Firebase SDKs for Firestore and Auth -->
+ <!-- Firebase SDKs for Firestore and Auth (Modified to use Canvas variables and secure auth) -->
  <script type="module">
-  // استيراد جميع الدوال المطلوبة
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-  import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-  // تم استيراد الدوال المطلوبة في كود React
+  import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
   import { getFirestore, doc, setDoc, onSnapshot, collection, query, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-  // === 1. التكوين المباشر لـ Firebase ===
-  const firebaseConfig = {
-   apiKey: "AIzaSyDh2miXzTIza7u85ygQMgPnvGnjNa13WAM",
-   authDomain: "giftsbot-eslam.firebaseapp.com",
-   projectId: "giftsbot-eslam",
-   storageBucket: "giftsbot-eslam.firebasestorage.app",
-   messagingSenderId: "61353800748",
-   appId: "1:61353800748:web:6a4bc3ce09f5bb4db70d89"
-  };
+  // === 1. جلب متغيرات البيئة الآمنة (MANDATORY) ===
+  const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+  const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+  const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
-  window.appId = firebaseConfig.projectId;
+  window.appId = appId;
+  window.isFirebaseAvailable = false; // القيمة الافتراضية
 
-  // === 2. تهيئة Firebase ===
-  if (firebaseConfig.projectId) {
-   const app = initializeApp(firebaseConfig);
-   window.db = getFirestore(app);
-   window.auth = getAuth(app);
+  // === 2. تهيئة Firebase والمصادقة الآمنة ===
+  if (Object.keys(firebaseConfig).length > 0) {
+   try {
+    const app = initializeApp(firebaseConfig);
+    window.db = getFirestore(app);
+    window.auth = getAuth(app);
+    window.isFirebaseAvailable = true;
 
-   window.isFirebaseAvailable = true; // علامة لـ React
+    // تمرير دوال Firestore بشكل صريح إلى الكائن window
+    window.collection = collection;
+    window.doc = doc;
+    window.setDoc = setDoc;
+    window.onSnapshot = onSnapshot;
+    window.query = query;
 
-   // 📢 الحل: تمرير دوال Firestore بشكل صريح إلى الكائن window
-   // هذا يسمح لكود React (في وسم Babel) بالوصول إليها.
-   window.collection = collection;
-   window.doc = doc;
-   window.setDoc = setDoc;
-   window.onSnapshot = onSnapshot;
-   window.query = query;
-
-   // تسجيل الدخول المجهول لتحديد userId
-   onAuthStateChanged(window.auth, async (user) => {
-    if (!user) {
-     try {
-      await signInAnonymously(window.auth);
-      console.log("Signed in anonymously.");
-     } catch (error) {
-      console.error("Firebase Sign-In Failed:", error);
+    // تسجيل الدخول الآمن باستخدام الرمز المخصص أو كمجهول
+    onAuthStateChanged(window.auth, async (user) => {
+     if (!user) {
+      try {
+       if (initialAuthToken) {
+        await signInWithCustomToken(window.auth, initialAuthToken);
+       } else {
+        await signInAnonymously(window.auth);
+       }
+       console.log("Auth successful, user state set.");
+      } catch (error) {
+       console.error("Firebase Sign-In Failed:", error);
+      }
      }
-    }
-   });
-   setLogLevel('Debug');
-   console.log("Firebase Initialized using Hardcoded Config.");
+    });
+    setLogLevel('Debug');
+    console.log("Firebase Initialized using Canvas Config.");
+   } catch (e) {
+    console.error("Firebase Initialization Error:", e);
+    window.isFirebaseAvailable = false;
+   }
   } else {
-   console.error("Firebase Config is missing or invalid. Using sessionStorage for message persistence.");
-   window.isFirebaseAvailable = false;
+   console.warn("Firebase Config is missing. Using SessionStorage for persistence.");
   }
  </script>
 
@@ -146,13 +146,13 @@
 </head>
 
 <body>
-  <!-- بداية وسم <main> - لحل مشكلة Main Landmark -->
-  <main>
-    <div id="root">
-      <!-- React component will be rendered here -->
-     </div>
-   </main>
-  <!-- نهاية وسم <main> -->
+ <!-- بداية وسم <main> - لحل مشكلة Main Landmark -->
+ <main>
+  <div id="root">
+   <!-- React component will be rendered here -->
+  </div>
+ </main>
+ <!-- نهاية وسم <main> -->
  <script type="text/babel">
   const { useState, useEffect, useCallback, useRef } = React;
 
@@ -329,8 +329,9 @@
    const [isTyping, setIsTyping] = useState(false);
    const messagesEndRef = useRef(null);
    const [placeholder, setPlaceholder] = useState('اكتب رسالتك...');
-   const [isFirebaseReady, setIsFirebaseReady] = useState(false);
+   const [isAuthReady, setIsAuthReady] = useState(false); // الحالة الجديدة: هل المصادقة جاهزة؟
    const [userId, setUserId] = useState(null);
+   const [isInitialLoadDone, setIsInitialLoadDone] = useState(false);
 
    // قراءة المتغيرات من Window بعد التهيئة
    const isFirebaseAvailable = typeof window.isFirebaseAvailable !== 'undefined' ? window.isFirebaseAvailable : false;
@@ -344,13 +345,14 @@
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
    };
 
-   // 1. منطق المصادقة والتحميل (يدعم Firestore كأولوية، ثم SessionStorage)
+   // 1. منطق المصادقة والتحميل (فصل حالة المصادقة عن حالة البيانات)
    useEffect(() => {
-    if (!isFirebaseAvailable || !window.db || !window.auth) {
-     // **الخطة البديلة:** تحميل من sessionStorage
+    if (!isFirebaseAvailable || !window.auth) {
+     // الخطة البديلة (SessionStorage)
      const loaded = loadMessagesFromSession();
      setMessages(loaded);
-     setIsFirebaseReady(true);
+     setUserId('session-user');
+     setIsAuthReady(true); // تم تعيينها فوراً للتحميل
      if (loaded.length === 0) {
       handleSendInitialMessage();
      }
@@ -358,63 +360,16 @@
      return;
     }
 
-    // **الأولوية:** الاتصال بـ Firestore
+    // الأولوية: الاتصال بـ Firestore
     const unsubscribeAuth = window.auth.onAuthStateChanged(user => {
+     // 🚨 هنا نقوم بتعيين جاهزية المصادقة فوراً دون انتظار onSnapshot
+     setIsAuthReady(true);
+
      if (user) {
       const currentUserId = user.uid || crypto.randomUUID();
       setUserId(currentUserId);
-
-      // استخدام دوال Firestore المعينة عالمياً (collection, query)
-      const messagesCollectionRef = collection(window.db, `artifacts/${firestoreAppId}/users/${currentUserId}/chat_messages`);
-      const q = query(messagesCollectionRef);
-
-      const unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
-       let loadedMessages = snapshot.docs.map(doc => {
-        const data = doc.data();
-        const timestampValue = data.timestamp ? (data.timestamp.seconds * 1000) : Date.now();
-
-        let richContent = {};
-        try {
-         if (data.product) richContent.product = JSON.parse(data.product);
-         if (data.customButton) richContent.customButton = JSON.parse(data.customButton);
-        } catch (e) {
-         console.error("Error parsing rich content JSON:", e);
-        }
-
-        return {
-         id: doc.id,
-         text: data.text,
-         sender: data.sender,
-         type: data.type || 'TEXT',
-         quickReplies: data.quickReplies || [],
-         ...richContent,
-         timestamp: timestampValue
-        };
-       });
-
-       // فرز الرسائل محليًا
-       loadedMessages.sort((a, b) => a.timestamp - b.timestamp);
-
-       setMessages(loadedMessages);
-       setIsFirebaseReady(true);
-       setTimeout(scrollToBottom, 50);
-
-       if (loadedMessages.length === 0) {
-        handleSendInitialMessage();
-       }
-      }, (error) => {
-       console.error("Error listening to messages:", error);
-       if (!messages.length) handleSendInitialMessage();
-       setIsFirebaseReady(true);
-      });
-
-      return () => unsubscribeSnapshot();
      } else {
-      // حالة عدم المصادقة
       setUserId(null);
-      setMessages([]);
-      setIsFirebaseReady(true);
-      if (!messages.length) handleSendInitialMessage();
      }
     });
 
@@ -422,12 +377,65 @@
    }, [isFirebaseAvailable, firestoreAppId]);
 
 
+   // 2. منطق الاستماع لـ Firestore (يعتمد على جاهزية المصادقة)
+   useEffect(() => {
+    // 🛑 الحماية: لا تبدأ الاستماع إلا بعد اكتمال المصادقة
+    if (!isAuthReady || !isFirebaseAvailable || !window.db || !userId) return;
+
+    const messagesCollectionRef = collection(window.db, `artifacts/${firestoreAppId}/users/${userId}/chat_messages`);
+    const q = query(messagesCollectionRef);
+
+    const unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
+     let loadedMessages = snapshot.docs.map(doc => {
+      const data = doc.data();
+      const timestampValue = data.timestamp ? (data.timestamp.seconds * 1000) : Date.now();
+
+      let richContent = {};
+      try {
+       if (data.product) richContent.product = JSON.parse(data.product);
+       if (data.customButton) richContent.customButton = JSON.parse(data.customButton);
+      } catch (e) {
+       console.error("Error parsing rich content JSON:", e);
+      }
+
+      return {
+       id: doc.id,
+       text: data.text,
+       sender: data.sender,
+       type: data.type || 'TEXT',
+       quickReplies: data.quickReplies || [],
+       ...richContent,
+       timestamp: timestampValue
+      };
+     });
+
+     // فرز الرسائل محليًا
+     loadedMessages.sort((a, b) => a.timestamp - b.timestamp);
+     setMessages(loadedMessages);
+
+     // تفعيل الرسالة الأولية بعد اكتمال التحميل الأول
+     if (!isInitialLoadDone && loadedMessages.length === 0) {
+      handleSendInitialMessage();
+     }
+     setIsInitialLoadDone(true);
+     setTimeout(scrollToBottom, 50);
+
+    }, (error) => {
+     console.error("Error listening to messages:", error);
+     // إذا حدث خطأ، لا يزال التطبيق يعمل (بما أن isAuthReady هي true)
+     if (!messages.length) handleSendInitialMessage();
+     setIsInitialLoadDone(true);
+    });
+
+    return () => unsubscribeSnapshot();
+   }, [isAuthReady, isFirebaseAvailable, firestoreAppId, userId]); // يعتمد الآن على isAuthReady
+
+
    // دالة حفظ الرسالة (تستخدم Firestore إذا متاح، وإلا sessionStorage)
    const saveMessage = async (message, currentMessages) => {
     // 1. منطق الحفظ إلى Firestore
-    if (isFirebaseAvailable && window.db && userId) {
+    if (isFirebaseAvailable && window.db && userId && userId !== 'session-user') {
      try {
-      // استخدام دوال Firestore المعينة عالمياً (collection, doc, setDoc)
       const messagesCollectionRef = collection(window.db, `artifacts/${firestoreAppId}/users/${userId}/chat_messages`);
 
       const payloadToSave = {
@@ -462,10 +470,8 @@
    };
 
 
+   // يجب تعديل هذه الدالة لاستخدام حالة messages الحالية
    const handleSendInitialMessage = useCallback(async () => {
-    // يتم استدعاء هذه الدالة فقط إذا لم يتم تحميل أي رسائل
-    if (messages.length > 0) return;
-
     // رسالة المستخدم الافتراضية للترحيب
     const fulfillmentResponse = await fetchFulfillmentResponse('مرحبا');
     const initialBotMessage = {
@@ -479,27 +485,36 @@
      timestamp: Date.now()
     };
 
-    // حفظ رسالة البوت الأولية (سيتم استخدام Firestore أو SessionStorage)
-    await saveMessage(initialBotMessage, messages);
+    // حفظ رسالة البوت الأولية
+    // نستخدم دالة تحديث الحالة لتجنب الاعتماد على "messages" كـ dependency
+    setMessages(prev => {
+     saveMessage(initialBotMessage, prev);
+     return prev;
+    });
 
-   }, [messages.length, isFirebaseAvailable, firestoreAppId, userId, messages]);
+   }, [isFirebaseAvailable, firestoreAppId, userId]);
 
 
    // 2. منطق الإرسال
    const handleSend = useCallback(async (query) => {
     const userQuery = query || input;
-    if (userQuery.trim() === '' || isTyping || !isFirebaseReady) return;
+    // تم تغيير isFirebaseReady إلى isAuthReady
+    if (userQuery.trim() === '' || isTyping || !isAuthReady) return;
 
     // رسالة المستخدم
     const userMessage = { id: Date.now(), text: userQuery, sender: 'user', type: 'TEXT', timestamp: Date.now() };
 
     // إضافة رسالة المستخدم إلى الـ state مؤقتاً قبل الحفظ أو الاستجابة
-    if (!isFirebaseAvailable) {
+    if (!isFirebaseAvailable || userId === 'session-user') {
      setMessages(prev => [...prev, userMessage]);
     }
 
     // حفظ رسالة المستخدم
-    await saveMessage(userMessage, messages);
+    // نستخدم دالة تحديث الحالة لتجنب الاعتماد على "messages" كـ dependency
+    setMessages(prev => {
+     saveMessage(userMessage, prev);
+     return prev;
+    });
 
     setInput('');
     setIsTyping(true);
@@ -525,10 +540,21 @@
      timestamp: Date.now() + 1
     };
 
-    // حفظ رسالة البوت (سيتم استخدام Firestore أو SessionStorage)
-    await saveMessage(botMessage, [...messages, userMessage]);
-
-   }, [input, isTyping, isFirebaseReady, isFirebaseAvailable, userId, messages, firestoreAppId]);
+    // حفظ رسالة البوت (يجب أن يتم الحفظ بعد رسالة المستخدم)
+    // هنا نستخدم messages للحفظ في sessionStorage إذا لم يكن Firestore متاحًا
+    // إذا كان Firestore متاحاً، onSnapshot سيتولى العرض
+    if (isFirebaseAvailable && userId && userId !== 'session-user') {
+     // إذا كان Firestore متاحاً، الحفظ في DB سينعكس في onSnapshot
+     await saveMessage(botMessage, []);
+    } else {
+     // إذا كان SessionStorage، يجب أن نضيف الرسالتين يدوياً
+     setMessages(prev => {
+      const userMsgAdded = prev.find(m => m.id === userMessage.id) ? prev : [...prev, userMessage];
+      saveMessage(botMessage, userMsgAdded);
+      return [...userMsgAdded, botMessage];
+     });
+    }
+   }, [input, isTyping, isAuthReady, isFirebaseAvailable, userId, firestoreAppId]);
 
 
    const handleQuickReply = (text) => {
@@ -580,10 +606,10 @@
    const lastBotMessage = messages.slice().reverse().find(m => m.sender === 'bot');
    const quickReplies = lastBotMessage?.quickReplies || [];
 
-   if (!isFirebaseReady) {
+   if (!isAuthReady) {
     return (
      <div className="flex justify-center items-center h-full text-gray-500">
-      جاري تهيئة الاتصال...
+      جاري تهيئة الاتصال والمصادقة...
      </div>
     );
    }
@@ -597,13 +623,13 @@
        <BagIcon className="ml-3" />
        <h1 className="text-lg font-bold">مساعد متجر الهدايا Ai </h1>
        {!isFirebaseAvailable && (
-        <span class="mr-2 text-xs text-green-600 bg-gray-800 p-1 rounded-full px-2">
+        <span className="mr-2 text-xs text-yellow-300 bg-gray-800 p-1 rounded-full px-2">
          تخزين مؤقت (Session)
         </span>
        )}
        {isFirebaseAvailable && (
         <span className="mr-2 text-xs text-green-500 bg-gray-700 p-1 rounded-full px-2">
-         DB
+         DB (Firestore)
         </span>
        )}
       </header>
@@ -615,7 +641,7 @@
         const isRichContent = message.type === 'PRODUCT_CARD' || message.type === 'CUSTOM_BUTTON';
 
         const bubbleClasses = isUser
-         ? 'p-3 bg-[#d7fbd1] text-white rounded-tr-none'
+         ? 'p-3 bg-indigo-100 text-gray-800 rounded-tr-none' // تم تغيير لون المستخدم ليتناسب مع Tailwind
          : (isRichContent
           ? 'p-0 bg-transparent'
           : 'p-3 bg-white text-gray-800 rounded-tl-none border border-gray-200'
@@ -655,7 +681,7 @@
          <button
           key={index}
           onClick={() => handleQuickReply(reply)}
-          disabled={isTyping || !isFirebaseReady}
+          disabled={isTyping || !isAuthReady}
           className="px-3 py-1 text-sm bg-indigo-50 border border-indigo-300 text-indigo-700 rounded-full hover:bg-indigo-100 transition duration-150 shadow-sm flex items-center whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
          >
           <ZapIcon className="ml-1 text-yellow-500" />
@@ -671,19 +697,19 @@
        <div className="flex space-x-2" dir="ltr">
         <input
          type="text"
-         className="flex-1 w-full border border-gray-300 rounded-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-gray-400 text-right text-gray-700 disabled:bg-gray-50 disabled:cursor-not-allowed"
+         className="flex-1 w-full border border-gray-300 rounded-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-indigo-400 text-right text-gray-700 disabled:bg-gray-50 disabled:cursor-not-allowed"
          value={input}
          onChange={(e) => setInput(e.target.value)}
          onKeyDown={handleKeyDown}
          placeholder={placeholder}
          dir="rtl"
-         disabled={isTyping || !isFirebaseReady}
+         disabled={isTyping || !isAuthReady}
         />
         <button
          onClick={() => handleSend()}
-         className={`p-3 rounded-lg text-white transition duration-150 ${input.trim() && !isTyping && isFirebaseReady ? 'bg-[#d7fbd1] hover:bg-indigo-700' : 'bg-gray-400 cursor-not-allowed'
+         className={`p-3 rounded-lg text-white transition duration-150 ${input.trim() && !isTyping && isAuthReady ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-gray-400 cursor-not-allowed'
           }`}
-         disabled={!input.trim() || isTyping || !isFirebaseReady}
+         disabled={!input.trim() || isTyping || !isAuthReady}
         >
          <SendInputIcon className="transform -scale-x-100" />
         </button>
