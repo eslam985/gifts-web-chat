@@ -17,6 +17,16 @@
  <!-- Firebase SDKs for Firestore and Auth -->
  <!-- تم نقل منطق التهيئة إلى داخل React -->
  <script type="module">
+  // هنا نقوم بتعريف تكوين Firebase الخاص بك مباشرة
+  const clientSideFirebaseConfig = {
+   apiKey: "AIzaSyDh2miXzTIza7u85ygQMgPnvGnjNa13WAM",
+   authDomain: "giftsbot-eslam.firebaseapp.com",
+   projectId: "giftsbot-eslam",
+   storageBucket: "giftsbot-eslam.firebasestorage.app",
+   messagingSenderId: "61353800748",
+   appId: "1:61353800748:web:6a4bc3ce09f5bb4db70d89"
+  };
+
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
   import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
   import { getFirestore, doc, setDoc, onSnapshot, collection, query, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
@@ -27,14 +37,17 @@
    getFirestore, doc, setDoc, onSnapshot, collection, query, setLogLevel
   };
 
-  // === جلب متغيرات البيئة الآمنة (MANDATORY) ===
-  // يتم وضعها على الكائن العام لقراءة React لها
-  window.firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-  window.initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-  window.appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+  // === تعيين تكوين Firebase للواجهة الأمامية ===
+  // هذا يجعل `firebaseConfig` و `appId` متاحين لكود React الخاص بك.
+  // المفاتيح هنا ليست سرية، لذا وضعها مباشرة في الكود الأمامي آمن.
+  window.firebaseConfig = clientSideFirebaseConfig;
+  window.appId = clientSideFirebaseConfig.appId; // لتستخدمه كـ firestoreAppId
 
-  // تعطيل رسائل الخطأ من Firebase بشكل مؤقت لتجنب التحذيرات المزدوجة أثناء التهيئة
-  // setLogLevel('silent'); // لا يمكن الوصول إليها خارج الكود الرئيسي
+  // يمكنك حذف السطر الخاص بـ __initial_auth_token إذا لم تكن تستخدم Custom Auth Tokens.
+  // window.initialAuthToken = null; // أو القيمة الافتراضية المناسبة
+
+  // (اختياري) يمكنك تفعيل هذا السطر لإخفاء بعض رسائل Firebase logs
+  // setLogLevel('silent');
  </script>
 
  <style>
